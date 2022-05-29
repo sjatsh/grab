@@ -2,17 +2,17 @@ package grab
 
 import (
 	"context"
+	"github.com/sjatsh/grab/pkg/bps"
 	"io"
 	"os"
 	"sync/atomic"
-	bps2 "test/pkg/bps"
 	"time"
 )
 
 type transfer struct {
 	n     int64 // must be 64bit aligned on 386
 	ctx   context.Context
-	gauge bps2.Gauge
+	gauge bps.Gauge
 	lim   RateLimiter
 	w     io.Writer
 	r     io.Reader
@@ -22,7 +22,7 @@ type transfer struct {
 func newTransfer(ctx context.Context, lim RateLimiter, dst io.Writer, src io.Reader, buf []byte) *transfer {
 	return &transfer{
 		ctx:   ctx,
-		gauge: bps2.NewSMA(6), // five second moving average sampling every second
+		gauge: bps.NewSMA(6), // five second moving average sampling every second
 		lim:   lim,
 		w:     dst,
 		r:     src,
@@ -37,7 +37,7 @@ func (c *transfer) copy() (written int64, err error) {
 	// maintain a bps gauge in another goroutine
 	ctx, cancel := context.WithCancel(c.ctx)
 	defer cancel()
-	go bps2.Watch(ctx, c.gauge, c.N, time.Second)
+	go bps.Watch(ctx, c.gauge, c.N, time.Second)
 
 	// start the transfer
 	if c.b == nil {
