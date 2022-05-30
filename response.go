@@ -55,6 +55,8 @@ type Response struct {
 	// errors. Errors are available via Response.Err
 	Done chan struct{}
 
+	downloadOptions DownloadOptions
+
 	DownloadParts bool
 
 	// Chunks download file split chunks

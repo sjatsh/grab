@@ -46,7 +46,7 @@ type Client struct {
 	// be overridden on each Request object. Default: 32KB.
 	BufferSize int
 
-	DownloadOptions DownloadOptions
+	downloadOptions DownloadOptions
 }
 
 // NewClient returns a new file download Client, using default configuration.
@@ -82,13 +82,14 @@ func (c *Client) Do(req *Request) *Response {
 	ctx, cancel := context.WithCancel(req.Context())
 	req = req.WithContext(ctx)
 	resp := &Response{
-		Request:    req,
-		Start:      time.Now(),
-		Done:       make(chan struct{}, 0),
-		Filename:   req.Filename,
-		ctx:        ctx,
-		cancel:     cancel,
-		bufferSize: req.BufferSize,
+		Request:         req,
+		Start:           time.Now(),
+		Done:            make(chan struct{}, 0),
+		Filename:        req.Filename,
+		ctx:             ctx,
+		cancel:          cancel,
+		bufferSize:      req.BufferSize,
+		downloadOptions: c.downloadOptions,
 	}
 	if resp.bufferSize == 0 {
 		// default to Client.BufferSize
@@ -145,7 +146,7 @@ func (c *Client) DoBatch(opt *DownloadOptions, requests ...*Request) <-chan *Res
 	if opt.workers < 1 {
 		opt.workers = len(requests)
 	}
-	c.DownloadOptions = *opt
+	c.downloadOptions = *opt
 	reqch := make(chan *Request, len(requests))
 	respch := make(chan *Response, len(requests))
 
@@ -361,8 +362,8 @@ func (c *Client) headRequest(resp *Response) stateFunc {
 	resp.Request.HTTPRequest.URL = resp.HTTPResponse.Request.URL
 	resp.Request.HTTPRequest.Host = resp.HTTPResponse.Request.Host
 
-	if !c.DownloadOptions.disablePartDownload {
-		chunks, partNum, err := SplitSizeIntoChunks(resp.HTTPResponse.ContentLength, c.DownloadOptions.partSize)
+	if !c.downloadOptions.disablePartDownload {
+		chunks, partNum, err := SplitSizeIntoChunks(resp.HTTPResponse.ContentLength, c.downloadOptions.partSize)
 		if err != nil {
 			resp.err = err
 			return c.closeResponse
@@ -394,7 +395,7 @@ func (c *Client) getRequestParts(resp *Response) stateFunc {
 	for w := 1; w <= resp.Request.DownloadOptions.workers; w++ {
 		go func() {
 			defer wg.Done()
-			downloadWorker(resp.ctx, resp.Request.DownloadOptions.retryTimes, chJobs, chResults)
+			downloadWorker(resp, chJobs, chResults)
 		}()
 	}
 

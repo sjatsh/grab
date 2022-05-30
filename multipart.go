@@ -1,7 +1,6 @@
 package grab
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -166,10 +165,10 @@ func checkDownloadedParts(opt *MultiCPInfo, cfFile string, chunks []*Chunk) (boo
 	return true, nil
 }
 
-func downloadWorker(ctx context.Context, retryTimes int, jobs <-chan *Jobs, results chan<- *Results) {
+func downloadWorker(resp *Response, jobs <-chan *Jobs, results chan<- *Results) {
 	for {
 		select {
-		case <-ctx.Done():
+		case <-resp.ctx.Done():
 			return
 		default:
 			j, ok := <-jobs
@@ -185,8 +184,8 @@ func downloadWorker(ctx context.Context, retryTimes int, jobs <-chan *Jobs, resu
 			res := &Results{
 				completed: j.Chunk.Completed,
 			}
-			for i := 1; i <= retryTimes; i++ {
-				if download(ctx, res, i == 1, i == retryTimes, j, results) == nil {
+			for i := 1; i <= resp.downloadOptions.retryTimes; i++ {
+				if download(resp, res, i == 1, i == resp.downloadOptions.retryTimes, j, results) == nil {
 					break
 				}
 			}
@@ -194,18 +193,25 @@ func downloadWorker(ctx context.Context, retryTimes int, jobs <-chan *Jobs, resu
 	}
 }
 
-func download(ctx context.Context, res *Results, firstTime, lastTime bool, j *Jobs, results chan<- *Results) error {
+func download(resp *Response, res *Results, firstTime, lastTime bool, j *Jobs, results chan<- *Results) error {
 	var err error
-	var resp *http.Response
+	var httpResp *http.Response
 	res.PartNumber = j.Chunk.Number
-	resp, err = doHttpReq(http.MethodGet, j.Url, map[string][]string{
+	httpResp, err = doHttpReq(http.MethodGet, j.Url, map[string][]string{
 		"Range": {j.Range},
 	})
+	if httpResp.StatusCode == http.StatusForbidden {
+		res.err = errors.New("server returned 403 Forbidden")
+		if firstTime {
+			results <- res
+		}
+		return nil
+	}
 	if err != nil {
 		res.err = err
 		return err
 	}
-	res.body = resp.Body
+	res.body = httpResp.Body
 
 	fd, err := os.OpenFile(j.FilePath, os.O_WRONLY, 0660)
 	if err != nil {
@@ -234,7 +240,7 @@ func download(ctx context.Context, res *Results, firstTime, lastTime bool, j *Jo
 	}
 
 	j.Chunk.Lock()
-	tf := newTransfer(ctx, nil, NewFileWriter(fd, res), LimitReadCloser(resp.Body, j.Chunk.Size), nil)
+	tf := newTransfer(resp.ctx, nil, NewFileWriter(fd, res), LimitReadCloser(httpResp.Body, j.Chunk.Size), nil)
 	j.Chunk.transfer = tf
 	j.Chunk.Unlock()
 	if firstTime {
@@ -244,7 +250,7 @@ func download(ctx context.Context, res *Results, firstTime, lastTime bool, j *Jo
 
 	n, err := j.Chunk.transfer.copy()
 	select {
-	case <-ctx.Done():
+	case <-resp.ctx.Done():
 		return nil
 	default:
 	}
