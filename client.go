@@ -45,6 +45,8 @@ type Client struct {
 	// to the transfer progress statistics. The BufferSize of each request can
 	// be overridden on each Request object. Default: 32KB.
 	BufferSize int
+
+	DownloadOptions DownloadOptions
 }
 
 // NewClient returns a new file download Client, using default configuration.
@@ -139,15 +141,16 @@ func (c *Client) DoChannel(reqch <-chan *Request, respch chan<- *Response) {
 //
 // The returned Response channel is closed only after all of the given Requests
 // have completed, successfully or otherwise.
-func (c *Client) DoBatch(workers int, requests ...*Request) <-chan *Response {
-	if workers < 1 {
-		workers = len(requests)
+func (c *Client) DoBatch(opt *DownloadOptions, requests ...*Request) <-chan *Response {
+	if opt.workers < 1 {
+		opt.workers = len(requests)
 	}
+	c.DownloadOptions = *opt
 	reqch := make(chan *Request, len(requests))
 	respch := make(chan *Response, len(requests))
 
 	wg := sync.WaitGroup{}
-	for i := 0; i < workers; i++ {
+	for i := 0; i < opt.workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -358,7 +361,7 @@ func (c *Client) headRequest(resp *Response) stateFunc {
 	resp.Request.HTTPRequest.URL = resp.HTTPResponse.Request.URL
 	resp.Request.HTTPRequest.Host = resp.HTTPResponse.Request.Host
 
-	chunks, partNum, err := SplitSizeIntoChunks(resp.HTTPResponse.ContentLength, 32*1024*1024)
+	chunks, partNum, err := SplitSizeIntoChunks(resp.HTTPResponse.ContentLength, c.DownloadOptions.partSize)
 	if err != nil {
 		resp.err = err
 		return c.closeResponse

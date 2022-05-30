@@ -7,6 +7,7 @@ import (
 	"github.com/sjatsh/grab"
 	"net/http"
 	"os"
+	"time"
 )
 
 type Config struct {
@@ -31,7 +32,11 @@ func main() {
 	downloader := grab.NewDownloader(
 		config.Path,
 		config.Files,
+		grab.WithPartSize(16*1024*1024),
+		grab.WithDownloadWorkers(3),
 	)
+
+	start := time.Now()
 	if err := downloader.StartDownload(); err != nil {
 		panic(err)
 	}
@@ -47,4 +52,5 @@ func main() {
 	if err := downloader.Err(); err != nil {
 		panic(err)
 	}
+	fmt.Println(time.Now().Sub(start))
 }

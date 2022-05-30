@@ -27,6 +27,7 @@ func Get(dst, urlStr string) (*Response, error) {
 type DownloadOptions struct {
 	workers    int
 	retryTimes int
+	partSize   int64
 }
 
 type DownloadOptionFunc func(opt *DownloadOptions)
@@ -40,6 +41,12 @@ func WithDownloadWorkers(workers int) DownloadOptionFunc {
 func WithRetryTimes(retryTimes int) DownloadOptionFunc {
 	return func(opt *DownloadOptions) {
 		opt.retryTimes = retryTimes
+	}
+}
+
+func WithPartSize(partSize int64) DownloadOptionFunc {
+	return func(opt *DownloadOptions) {
+		opt.partSize = partSize
 	}
 }
 
@@ -64,6 +71,7 @@ func GetBatch(reqParams []BatchReq, opts ...DownloadOptionFunc) (<-chan *Respons
 	opt := &DownloadOptions{
 		workers:    10,
 		retryTimes: 3,
+		partSize:   32 * 1024 * 1024,
 	}
 	for _, v := range opts {
 		v(opt)
@@ -79,6 +87,6 @@ func GetBatch(reqParams []BatchReq, opts ...DownloadOptionFunc) (<-chan *Respons
 		reqs[i] = req
 	}
 
-	ch := DefaultClient.DoBatch(opt.workers, reqs...)
+	ch := DefaultClient.DoBatch(opt, reqs...)
 	return ch, nil
 }
