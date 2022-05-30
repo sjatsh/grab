@@ -301,6 +301,13 @@ func (lc *LimitedReadCloser) Close() error {
 	return nil
 }
 
+var defaultCLi = http.Client{
+	Transport: &http.Transport{
+		Proxy:           http.ProxyFromEnvironment,
+		IdleConnTimeout: 30 * time.Second,
+	},
+}
+
 func doHttpReq(method, url string, headers ...map[string][]string) (*http.Response, error) {
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
@@ -313,9 +320,5 @@ func doHttpReq(method, url string, headers ...map[string][]string) (*http.Respon
 			}
 		}
 	}
-
-	cli := http.Client{
-		Timeout: 2 * time.Hour,
-	}
-	return cli.Do(req)
+	return defaultCLi.Do(req)
 }
