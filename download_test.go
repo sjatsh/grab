@@ -6,7 +6,6 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"testing"
-	"time"
 )
 
 func TestStartDownload(t *testing.T) {
@@ -18,12 +17,8 @@ func TestStartDownload(t *testing.T) {
 		home+string(os.PathSeparator)+"download",
 		[]DownloadFile{
 			{
-				Url:      "http://mirror.nl.leaseweb.net/speedtest/10000mb.bin",
-				FileName: "10000mb.bin",
-			},
-			{
-				Url:      "http://lg-sin.fdcservers.net/10GBtest.zip",
-				FileName: "10GBtest.zip",
+				Url:      "https://asset.pbrmaxassets.com/202205301459/e570a5ae5a0dc0299732675853e80614/4741888582829158400/5601859326138826752.zip?response-content-disposition=attachment;filename=Stone.zip",
+				FileName: "Stone.zip",
 			},
 		},
 	)
@@ -39,15 +34,6 @@ func TestStartDownload(t *testing.T) {
 		fmt.Printf("%.1f%%\n", progress*100)
 		return true
 	})
-
-	go func() {
-		time.AfterFunc(time.Second*10, func() {
-			if err := downloader.PauseDownload(); err != nil {
-				t.Error(err)
-				return
-			}
-		})
-	}()
 	if err := downloader.Err(); err != nil {
 		t.Fatal(err)
 	}

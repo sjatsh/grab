@@ -1,6 +1,5 @@
 package grab
 
-import "C"
 import (
 	"golang.org/x/sync/errgroup"
 	"os"
@@ -9,8 +8,8 @@ import (
 )
 
 type DownloadFile struct {
-	Url      string `json:"url"`
-	FileName string `json:"fileName"`
+	Url      string `json:"url" yaml:"url"`
+	FileName string `json:"fileName" yaml:"fileName"`
 }
 
 type Downloader struct {
