@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hashicorp/go-cleanhttp"
 	"io"
 	"net/http"
 	"os"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 type Chunk struct {
@@ -301,12 +301,8 @@ func (lc *LimitedReadCloser) Close() error {
 	return nil
 }
 
-var defaultCLi = http.Client{
-	Transport: &http.Transport{
-		Proxy:           http.ProxyFromEnvironment,
-		IdleConnTimeout: 30 * time.Second,
-	},
-}
+// httpClient is the default client to be used by HttpGetters.
+var httpClient = cleanhttp.DefaultClient()
 
 func doHttpReq(method, url string, headers ...map[string][]string) (*http.Response, error) {
 	req, err := http.NewRequest(method, url, nil)
@@ -320,5 +316,5 @@ func doHttpReq(method, url string, headers ...map[string][]string) (*http.Respon
 			}
 		}
 	}
-	return defaultCLi.Do(req)
+	return httpClient.Do(req)
 }

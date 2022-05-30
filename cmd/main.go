@@ -32,8 +32,8 @@ func main() {
 	downloader := grab.NewDownloader(
 		config.Path,
 		config.Files,
-		grab.WithPartSize(16*1024*1024),
-		grab.WithDownloadWorkers(3),
+		grab.WithPartSize(32*1024*1024),
+		grab.WithDownloadWorkers(10),
 	)
 
 	start := time.Now()
