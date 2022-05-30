@@ -113,14 +113,16 @@ func (d *Downloader) PauseDownload() error {
 		break
 	}
 
+	errWg := errgroup.Group{}
 	d.RLock()
-	defer d.RUnlock()
 	for _, v := range d.resp {
-		if err := v.Cancel(); err != nil {
-			return err
-		}
+		resp := v
+		errWg.Go(func() error {
+			return resp.Cancel()
+		})
 	}
-	return nil
+	d.RUnlock()
+	return errWg.Wait()
 }
 
 func (d *Downloader) Progress() float64 {
@@ -155,9 +157,9 @@ func (d *Downloader) Wait() {
 		break
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(len(d.resp))
+	wg := &sync.WaitGroup{}
 	d.RLock()
+	wg.Add(len(d.resp))
 	for _, v := range d.resp {
 		resp := v
 		go func() {
@@ -165,7 +167,7 @@ func (d *Downloader) Wait() {
 			resp.Wait()
 		}()
 	}
-	defer d.RUnlock()
+	d.RUnlock()
 	wg.Wait()
 }
 
