@@ -243,8 +243,10 @@ func download(ctx context.Context, res *Results, firstTime, lastTime bool, j *Jo
 	}
 
 	n, err := j.Chunk.transfer.copy()
-	if err == context.Canceled && n != j.Chunk.Size {
+	select {
+	case <-ctx.Done():
 		return nil
+	default:
 	}
 
 	copyErr := n != j.Chunk.Size || err != nil

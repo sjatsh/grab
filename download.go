@@ -135,15 +135,16 @@ func (d *Downloader) Progress() float64 {
 		break
 	}
 
-	d.RLock()
-	defer d.RUnlock()
-
 	var bytesComplete int64
 	var totalSize int64
+
+	d.RLock()
 	for _, v := range d.resp {
 		bytesComplete += v.BytesComplete()
 		totalSize += v.Size()
 	}
+	d.RUnlock()
+
 	return float64(bytesComplete) / float64(totalSize)
 }
 
@@ -203,12 +204,12 @@ func (d *Downloader) BytesPerSecond() float64 {
 		break
 	}
 
-	d.RLock()
-	defer d.RUnlock()
-
 	var bps float64
+
+	d.RLock()
 	for _, v := range d.resp {
 		bps += v.BytesPerSecond()
 	}
+	d.RUnlock()
 	return bps
 }

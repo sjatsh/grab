@@ -51,5 +51,4 @@ func TestStartDownload(t *testing.T) {
 	if err := downloader.Err(); err != nil {
 		t.Fatal(err)
 	}
-	downloader.Wait()
 }
