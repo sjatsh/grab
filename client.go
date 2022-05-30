@@ -361,15 +361,17 @@ func (c *Client) headRequest(resp *Response) stateFunc {
 	resp.Request.HTTPRequest.URL = resp.HTTPResponse.Request.URL
 	resp.Request.HTTPRequest.Host = resp.HTTPResponse.Request.Host
 
-	chunks, partNum, err := SplitSizeIntoChunks(resp.HTTPResponse.ContentLength, c.DownloadOptions.partSize)
-	if err != nil {
-		resp.err = err
-		return c.closeResponse
-	}
-	if partNum > 1 {
-		resp.Chunks = chunks
-		resp.DownloadParts = true
-		return c.readResponse
+	if !c.DownloadOptions.disablePartDownload {
+		chunks, partNum, err := SplitSizeIntoChunks(resp.HTTPResponse.ContentLength, c.DownloadOptions.partSize)
+		if err != nil {
+			resp.err = err
+			return c.closeResponse
+		}
+		if partNum > 1 {
+			resp.Chunks = chunks
+			resp.DownloadParts = true
+			return c.readResponse
+		}
 	}
 
 	if resp.Filename != "" && resp.fi == nil {

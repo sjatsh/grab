@@ -25,9 +25,10 @@ func Get(dst, urlStr string) (*Response, error) {
 }
 
 type DownloadOptions struct {
-	workers    int
-	retryTimes int
-	partSize   int64
+	workers             int
+	retryTimes          int
+	partSize            int64
+	disablePartDownload bool
 }
 
 type DownloadOptionFunc func(opt *DownloadOptions)
@@ -47,6 +48,12 @@ func WithRetryTimes(retryTimes int) DownloadOptionFunc {
 func WithPartSize(partSize int64) DownloadOptionFunc {
 	return func(opt *DownloadOptions) {
 		opt.partSize = partSize
+	}
+}
+
+func WithDisablePartDownload(disablePartDownload bool) DownloadOptionFunc {
+	return func(opt *DownloadOptions) {
+		opt.disablePartDownload = disablePartDownload
 	}
 }
 
