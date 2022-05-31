@@ -162,6 +162,7 @@ func (c *Client) DoBatch(ctx context.Context, opt *DownloadOptions, requests ...
 
 	// queue requests
 	go func() {
+		var paused bool
 		for _, req := range requests {
 			select {
 			case <-ctx.Done():
@@ -173,8 +174,19 @@ func (c *Client) DoBatch(ctx context.Context, opt *DownloadOptions, requests ...
 
 	END:
 		close(reqch)
+		if !paused {
+			go func() {
+				select {
+				case <-ctx.Done():
+					paused = true
+					close(respch)
+				}
+			}()
+		}
 		wg.Wait()
-		close(respch)
+		if !paused {
+			close(respch)
+		}
 	}()
 	return respch
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/go-yaml/yaml"
 	"github.com/sjatsh/grab"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"time"
 )
@@ -42,7 +43,7 @@ func main() {
 	}
 
 	go func() {
-		_ = http.ListenAndServe("0.0.0.0:6060", nil)
+		_ = http.ListenAndServe(":6060", nil)
 	}()
 
 	downloader.WithProgressHook(func(current, total int64, err error) {
@@ -52,13 +53,13 @@ func main() {
 		fmt.Printf("%.2f%%\n", float64(current)/float64(total)*100)
 	})
 
-	exist := make(chan struct{})
 	time.AfterFunc(time.Second*10, func() {
 		if err := downloader.PauseDownload(); err != nil {
 			panic(err)
 		}
-		exist <- struct{}{}
+		fmt.Println("paused download")
 	})
-	<-exist
+
 	fmt.Println(time.Now().Sub(start))
+	select {}
 }

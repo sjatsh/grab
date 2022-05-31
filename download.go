@@ -141,8 +141,12 @@ func (d *Downloader) StartDownload() error {
 				})
 			}
 			d.l.RUnlock()
-			if err := errWg.Wait(); err != nil {
+			if d.err = errWg.Wait(); d.err != nil {
+				close(d.hasErr)
 				d.cancel()
+				return
+			} else if d.Done() {
+				return
 			}
 		}
 	}()
@@ -161,14 +165,9 @@ func (d *Downloader) PauseDownload() error {
 
 	var err error
 	for _, v := range d.resps {
-		if err = v.Cancel(); err != nil {
-			break
-		}
+		err = v.Cancel()
 	}
-	if err != ErrForbidden {
-		return err
-	}
-	return nil
+	return err
 }
 
 func (d *Downloader) Wait() {
