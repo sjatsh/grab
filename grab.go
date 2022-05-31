@@ -17,13 +17,11 @@ type BatchReq struct {
 // For non-blocking calls or control over HTTP client headers, redirect policy,
 // and other settings, create a Client instead.
 func Get(dst, urlStr string) (*Response, error) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	req, err := NewRequest(ctx, dst, urlStr)
+	req, err := NewRequest(dst, urlStr)
 	if err != nil {
 		return nil, err
 	}
-	resp := DefaultClient.Do(ctx, cancel, req)
+	resp := DefaultClient.Do(req)
 	return resp, resp.Err()
 }
 
@@ -116,7 +114,7 @@ func GetBatch(reqParams []BatchReq, opts ...DownloadOptionFunc) (*BatchResponse,
 
 	reqs := make([]*Request, len(reqParams))
 	for i := 0; i < len(reqs); i++ {
-		req, err := NewRequest(ctx, reqParams[i].Dst, reqParams[i].Url)
+		req, err := NewRequest(reqParams[i].Dst, reqParams[i].Url)
 		if err != nil {
 			return nil, err
 		}
@@ -124,7 +122,7 @@ func GetBatch(reqParams []BatchReq, opts ...DownloadOptionFunc) (*BatchResponse,
 		reqs[i] = req
 	}
 
-	ch := DefaultClient.DoBatch(ctx, cancel, opt, reqs...)
+	ch := DefaultClient.DoBatch(ctx, opt, reqs...)
 	resp.ResCh = ch
 	return resp, nil
 }

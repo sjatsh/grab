@@ -112,7 +112,7 @@ type Request struct {
 
 // NewRequest returns a new file transfer Request suitable for use with
 // Client.Do.
-func NewRequest(ctx context.Context, dst, urlStr string) (*Request, error) {
+func NewRequest(dst, urlStr string) (*Request, error) {
 	if dst == "" {
 		dst = "."
 	}
@@ -120,9 +120,7 @@ func NewRequest(ctx context.Context, dst, urlStr string) (*Request, error) {
 	if err != nil {
 		return nil, err
 	}
-	req = req.WithContext(ctx)
 	return &Request{
-		ctx:         ctx,
 		HTTPRequest: req,
 		Filename:    dst,
 	}, nil

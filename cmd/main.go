@@ -53,5 +53,6 @@ func main() {
 	})
 
 	downloader.Wait()
+
 	fmt.Println(time.Now().Sub(start))
 }
