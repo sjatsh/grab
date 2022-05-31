@@ -18,8 +18,6 @@ type Downloader struct {
 	path              string
 	files             []DownloadFile
 	resp              []*Response
-	errHookOnce       sync.Once
-	progressHookOnce  sync.Once
 	perSecondHookOnce sync.Once
 	opts              []DownloadOptionFunc
 	lastBps           float64
@@ -36,30 +34,27 @@ func NewDownloader(path string, files []DownloadFile, opts ...DownloadOptionFunc
 	}
 }
 
-func (d *Downloader) WithProgressHook(hook func(current, total int64, err error) bool) {
-	d.progressHookOnce.Do(func() {
-		go func() {
-			ticker := time.NewTicker(time.Second)
-			defer ticker.Stop()
-			for range ticker.C {
-				d.Progress()
-				select {
-				case err := <-d.Err():
-					hook(atomic.LoadInt64(&d.current), atomic.LoadInt64(&d.total), err)
-				default:
-					hook(atomic.LoadInt64(&d.current), atomic.LoadInt64(&d.total), nil)
-				}
+func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)) {
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			d.Progress()
+			select {
+			case err := <-d.Err():
+				hook(atomic.LoadInt64(&d.current), atomic.LoadInt64(&d.total), err)
+				return
+			default:
+				hook(atomic.LoadInt64(&d.current), atomic.LoadInt64(&d.total), nil)
 			}
-		}()
-	})
+		}
+	}()
 }
 
 func (d *Downloader) WithErrHook(hook func(err error)) {
-	d.errHookOnce.Do(func() {
-		go func() {
-			hook(<-d.Err())
-		}()
-	})
+	go func() {
+		hook(<-d.Err())
+	}()
 }
 
 func (d *Downloader) WithBytesPerSecondHook(hook func(bps float64) bool) {
@@ -138,6 +133,8 @@ func (d *Downloader) Progress() float64 {
 		break
 	}
 
+	d.Lock()
+	defer d.Unlock()
 	var bytesComplete int64
 	var totalSize int64
 	for _, v := range d.resp {
