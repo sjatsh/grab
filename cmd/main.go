@@ -49,10 +49,16 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		fmt.Printf("%.1f%%\n", float64(current)/float64(total)*100)
+		fmt.Printf("%.2f%%\n", float64(current)/float64(total)*100)
 	})
 
-	downloader.Wait()
-
+	exist := make(chan struct{})
+	time.AfterFunc(time.Second*10, func() {
+		if err := downloader.PauseDownload(); err != nil {
+			panic(err)
+		}
+		exist <- struct{}{}
+	})
+	<-exist
 	fmt.Println(time.Now().Sub(start))
 }

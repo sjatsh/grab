@@ -255,13 +255,14 @@ func download(resp *Response, res *Results, firstTime, lastTime bool, j *Jobs, r
 	default:
 	}
 
-	if n != j.Chunk.Size && err == nil {
+	needSize := j.Chunk.Size - j.Chunk.Completed
+	if n != needSize && err == nil {
 		// 说明链接失效了
 		res.err = ErrForbidden
 		return nil
 	}
 
-	copyErr := n != j.Chunk.Size || err != nil
+	copyErr := n != needSize || err != nil
 	if lastTime || !copyErr {
 		res.done = true
 		j.Chunk.Done = true

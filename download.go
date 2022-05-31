@@ -15,7 +15,7 @@ type DownloadFile struct {
 }
 
 type Downloader struct {
-	sync.RWMutex
+	l                 sync.RWMutex
 	path              string
 	files             []DownloadFile
 	resps             []*Response
@@ -27,7 +27,7 @@ type Downloader struct {
 	errOnce           sync.Once
 	err               error
 	hasErr            chan struct{}
-	done              int32
+	done              int64
 	cancel            context.CancelFunc
 }
 
@@ -45,12 +45,20 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
+			current := atomic.LoadInt64(&d.current)
+			total := atomic.LoadInt64(&d.total)
+			if current > total {
+				current = total
+			}
 			select {
 			case <-d.hasErr:
-				hook(atomic.LoadInt64(&d.current), atomic.LoadInt64(&d.total), d.err)
+				hook(current, total, d.err)
 				return
 			default:
-				hook(atomic.LoadInt64(&d.current), atomic.LoadInt64(&d.total), nil)
+				hook(current, total, nil)
+				if d.current == d.total {
+					return
+				}
 			}
 		}
 	}()
@@ -58,7 +66,10 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 
 func (d *Downloader) WithErrHook(hook func(err error)) {
 	go func() {
-		hook(d.Err())
+		err := d.Err()
+		if err != nil {
+			hook(err)
+		}
 	}()
 }
 
@@ -106,11 +117,11 @@ func (d *Downloader) StartDownload() error {
 
 	go func() {
 		for v := range resp.ResCh {
-			d.Lock()
+			d.l.Lock()
 			d.resps = append(d.resps, v)
-			d.Unlock()
+			d.l.Unlock()
 		}
-		atomic.StoreInt32(&d.done, 1)
+		atomic.StoreInt64(&d.done, 1)
 	}()
 
 	go func() {
@@ -122,14 +133,14 @@ func (d *Downloader) StartDownload() error {
 		defer ticker.Stop()
 		for range ticker.C {
 			errWg := &errgroup.Group{}
-			d.RLock()
+			d.l.RLock()
 			for _, v := range d.resps {
 				resp := v
 				errWg.Go(func() error {
 					return resp.Err()
 				})
 			}
-			d.RUnlock()
+			d.l.RUnlock()
 			if err := errWg.Wait(); err != nil {
 				d.cancel()
 			}
@@ -140,13 +151,33 @@ func (d *Downloader) StartDownload() error {
 
 func (d *Downloader) PauseDownload() error {
 	d.cancel()
-	return d.Err()
+
+	for !d.Done() {
+		time.Sleep(time.Second)
+	}
+
+	d.l.RLock()
+	defer d.l.RUnlock()
+
+	var err error
+	for _, v := range d.resps {
+		if err = v.Cancel(); err != nil {
+			break
+		}
+	}
+	if err != ErrForbidden {
+		return err
+	}
+	return nil
 }
 
 func (d *Downloader) Wait() {
 	for !d.Done() {
 		time.Sleep(time.Second)
 	}
+
+	d.l.RLock()
+	defer d.l.RUnlock()
 	for _, v := range d.resps {
 		v.Wait()
 	}
@@ -160,17 +191,16 @@ func (d *Downloader) Err() error {
 	d.errOnce.Do(func() {
 		go func() {
 			errWg := &errgroup.Group{}
-			d.RLock()
+			d.l.RLock()
 			for _, v := range d.resps {
 				resp := v
 				errWg.Go(func() error {
 					return resp.Err()
 				})
 			}
-			d.RUnlock()
-			if d.err = errWg.Wait(); d.err != nil {
-				close(d.hasErr)
-			}
+			d.l.RUnlock()
+			d.err = errWg.Wait()
+			close(d.hasErr)
 		}()
 	})
 	<-d.hasErr
@@ -179,14 +209,14 @@ func (d *Downloader) Err() error {
 
 func (d *Downloader) BytesPerSecond() float64 {
 	var bps float64
-	d.RLock()
+	d.l.RLock()
 	for _, v := range d.resps {
 		bps += v.BytesPerSecond()
 	}
-	d.RUnlock()
+	d.l.RUnlock()
 	return bps
 }
 
 func (d *Downloader) Done() bool {
-	return atomic.LoadInt32(&d.done) == 1
+	return atomic.LoadInt64(&d.done) == 1
 }
