@@ -53,74 +53,6 @@ func NewDownloader(path string, files []DownloadFile, opts ...DownloadOptionFunc
 	}
 }
 
-func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)) {
-	progressFunc := func() {
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
-			if atomic.LoadInt64(&d.status) == StatusStop {
-				return
-			}
-
-			current := atomic.LoadInt64(&d.current)
-			total := atomic.LoadInt64(&d.total)
-			if current > total {
-				current = total
-			}
-			if d.currentLatest != 0 && current <= d.currentLatest && current < total {
-				continue
-			}
-			atomic.StoreInt64(&d.currentLatest, current)
-
-			select {
-			case <-d.hasErr:
-				d.progressHook(current, total, d.err)
-				return
-			default:
-				d.progressHook(current, total, nil)
-				if current == total {
-					return
-				}
-			}
-		}
-	}
-
-	if d.progressHook != nil {
-		go progressFunc()
-		return
-	}
-	d.progressHook = hook
-	go progressFunc()
-}
-
-func (d *Downloader) WithErrHook(hook func(err error)) {
-	go func() {
-		err := d.Err()
-		if err != nil {
-			hook(err)
-		}
-	}()
-}
-
-func (d *Downloader) WithBytesPerSecondHook(hook func(bps float64) bool) {
-	d.perSecondHookOnce.Do(func() {
-		go func() {
-			ticker := time.NewTicker(time.Second)
-			defer ticker.Stop()
-			for range ticker.C {
-				bps := d.BytesPerSecond()
-				if d.lastBps == bps {
-					continue
-				}
-				d.lastBps = bps
-				if !hook(bps) {
-					return
-				}
-			}
-		}()
-	})
-}
-
 func (d *Downloader) StartDownload() error {
 	if len(d.files) == 0 {
 		return nil
@@ -151,21 +83,15 @@ func (d *Downloader) StartDownload() error {
 		})
 	}
 
-	if status == StatusEmpty {
-		d.opts = append(d.opts, WithWriteHook(func(n int64) {
-			atomic.AddInt64(&d.current, n)
-		}))
-	}
-	resp, err := GetBatch(batchReq, d.opts...)
+	resp, err := GetBatch(batchReq, append(d.opts, WithWriteHook(func(n int64) {
+		atomic.AddInt64(&d.current, n)
+	}))...)
 	if err != nil {
 		return err
 	}
 	d.cancel = resp.Cancel
-
-	if status == StatusEmpty {
-		atomic.AddInt64(&d.current, resp.Current)
-		atomic.AddInt64(&d.total, resp.Total)
-	}
+	atomic.AddInt64(&d.current, resp.Current)
+	atomic.AddInt64(&d.total, resp.Total)
 
 	go func() {
 		for v := range resp.ResCh {
@@ -235,6 +161,74 @@ func (d *Downloader) PauseDownload() error {
 	return err
 }
 
+func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)) {
+	progressFunc := func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if atomic.LoadInt64(&d.status) == StatusStop {
+				return
+			}
+
+			current := atomic.LoadInt64(&d.current)
+			total := atomic.LoadInt64(&d.total)
+			if current > total {
+				current = total
+			}
+			if d.currentLatest != 0 && current <= d.currentLatest && current < total {
+				continue
+			}
+			atomic.StoreInt64(&d.currentLatest, current)
+
+			select {
+			case <-d.hasErr:
+				d.progressHook(current, total, d.err)
+				return
+			default:
+				d.progressHook(current, total, nil)
+				if current == total {
+					return
+				}
+			}
+		}
+	}
+
+	if d.progressHook != nil {
+		go progressFunc()
+		return
+	}
+	d.progressHook = hook
+	go progressFunc()
+}
+
+func (d *Downloader) WithErrHook(hook func(err error)) {
+	go func() {
+		err := d.Err()
+		if err != nil {
+			hook(err)
+		}
+	}()
+}
+
+func (d *Downloader) WithBytesPerSecondHook(hook func(bps float64) bool) {
+	d.perSecondHookOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				bps := d.BytesPerSecond()
+				if d.lastBps == bps {
+					continue
+				}
+				d.lastBps = bps
+				if !hook(bps) {
+					return
+				}
+			}
+		}()
+	})
+}
+
 func (d *Downloader) Wait() {
 	for !d.Done() {
 		time.Sleep(time.Second)
@@ -292,6 +286,9 @@ func (d *Downloader) IsRunning() bool {
 }
 
 func (d *Downloader) clean() {
+	atomic.StoreInt64(&d.currentLatest, 0)
+	atomic.StoreInt64(&d.current, 0)
+	atomic.StoreInt64(&d.total, 0)
 	atomic.StoreInt64(&d.errChClosed, 0)
 	atomic.StoreInt64(&d.done, 0)
 	d.perSecondHookOnce = sync.Once{}

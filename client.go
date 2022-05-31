@@ -533,7 +533,7 @@ func (c *Client) getRequestParts(resp *Response) stateFunc {
 		close(chJobs)
 	}()
 
-	resLock := sync.RWMutex{}
+	resLock := &sync.RWMutex{}
 	downloadingJobs := make([]*Results, 0, 10000)
 	go func() {
 		for res := range chResults {
@@ -556,6 +556,8 @@ func (c *Client) getRequestParts(resp *Response) stateFunc {
 			var totalAddBytes int64
 
 			resLock.RLock()
+			defer resLock.RUnlock()
+
 			for _, v := range downloadingJobs {
 				if v.err != nil {
 					resp.err = v.err
@@ -587,9 +589,7 @@ func (c *Client) getRequestParts(resp *Response) stateFunc {
 				v.latestWriteBytes = completedBytes
 
 				totalAddBytes += addBytes
-
 			}
-			resLock.RUnlock()
 
 			data, _ := json.Marshal(resp.MultiCPInfo)
 			if err := os.WriteFile(resp.Request.PartInfo, data, 0660); err != nil {
@@ -604,6 +604,8 @@ func (c *Client) getRequestParts(resp *Response) stateFunc {
 
 		closeFd := func() {
 			resLock.RLock()
+			defer resLock.RUnlock()
+
 			for _, v := range downloadingJobs {
 				if v.fd != nil {
 					_ = v.fd.Close()
@@ -614,7 +616,6 @@ func (c *Client) getRequestParts(resp *Response) stateFunc {
 					v.body = nil
 				}
 			}
-			resLock.RUnlock()
 		}
 
 		ticker := time.NewTicker(time.Second)
@@ -623,8 +624,8 @@ func (c *Client) getRequestParts(resp *Response) stateFunc {
 		for range ticker.C {
 			select {
 			case <-resp.Done:
-				closeFd()
 				writePartsInfo()
+				closeFd()
 				return
 			default:
 				writePartsInfo()
