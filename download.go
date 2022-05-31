@@ -124,21 +124,23 @@ func (d *Downloader) StartDownload() error {
 	if len(d.files) == 0 {
 		return nil
 	}
+	d.startLock.Lock()
+	defer d.startLock.Unlock()
+
 	if atomic.LoadInt64(&d.status) == StatusStart {
 		return errors.New("already in progress download")
 	}
 
-	d.clean()
-	d.startLock.Lock()
 	defer func() {
 		if d.progressHook != nil {
 			d.WithProgressHook(nil)
 		}
-		d.startLock.Unlock()
 		atomic.StoreInt64(&d.status, StatusStart)
 	}()
 
-	batchReq := make([]BatchReq, 0)
+  d.clean()
+
+  batchReq := make([]BatchReq, 0)
 	for _, v := range d.files {
 		batchReq = append(batchReq, BatchReq{
 			Dst: d.path + string(os.PathSeparator) + v.FileName,
