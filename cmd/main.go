@@ -52,6 +52,10 @@ func main() {
 		}
 		fmt.Printf("%.2f%%\n", float64(current)/float64(total)*100)
 	})
+
+	//time.AfterFunc(time.Second*10, func() {
+	//	downloader.PauseDownload()
+	//})
 	downloader.Wait()
 	fmt.Println(time.Now().Sub(start))
 }

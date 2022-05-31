@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"golang.org/x/sync/errgroup"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -531,20 +532,7 @@ func (c *Client) getRequestParts(resp *Response) stateFunc {
 		}
 	}()
 
-	cpFile := fmt.Sprintf("%s.cp", resp.Request.Filename)
-	cpfd, err := os.OpenFile(cpFile, os.O_RDWR, 0660)
-	if err != nil {
-		resp.err = err
-		return c.closeResponse
-	}
 	go func() {
-		defer func() {
-			_ = cpfd.Close()
-			if resp.BytesComplete() == resp.HTTPResponse.ContentLength {
-				_ = os.Remove(cpFile)
-			}
-		}()
-
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
@@ -564,6 +552,9 @@ func (c *Client) getRequestParts(resp *Response) stateFunc {
 				resLock.RUnlock()
 				return
 			default:
+
+				var totalAddBytes int64
+
 				resLock.RLock()
 				for _, v := range downloadingJobs {
 					if v.err != nil {
@@ -595,31 +586,20 @@ func (c *Client) getRequestParts(resp *Response) stateFunc {
 					block.Completed += addBytes
 					v.latestWriteBytes = completedBytes
 
-					if resp.downloadOptions.writeHook != nil {
-						resp.downloadOptions.writeHook(addBytes)
-					}
+					totalAddBytes += addBytes
+
 				}
 				resLock.RUnlock()
 
-				if err := cpfd.Truncate(0); err != nil {
+				data, _ := json.Marshal(resp.MultiCPInfo)
+				cpFile := fmt.Sprintf("%s.cp", resp.Request.Filename)
+				if err := os.WriteFile(cpFile, data, fs.ModePerm); err != nil {
 					resp.err = err
 					c.closeResponse(resp)
-					return
 				}
-				if _, err := cpfd.Seek(0, io.SeekStart); err != nil {
-					resp.err = err
-					c.closeResponse(resp)
-					return
-				}
-				if err := json.NewEncoder(cpfd).Encode(resp.MultiCPInfo); err != nil {
-					resp.err = err
-					c.closeResponse(resp)
-					return
-				}
-				if err := cpfd.Sync(); err != nil {
-					resp.err = err
-					c.closeResponse(resp)
-					return
+
+				if resp.downloadOptions.writeHook != nil {
+					resp.downloadOptions.writeHook(totalAddBytes)
 				}
 			}
 		}
