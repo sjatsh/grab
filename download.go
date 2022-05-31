@@ -220,7 +220,7 @@ func (d *Downloader) PauseDownload() error {
 	for _, v := range d.resps {
 		err = v.Cancel()
 	}
-	time.Sleep(time.Second)
+	time.Sleep(time.Second * 3)
 	return err
 }
 
@@ -281,9 +281,6 @@ func (d *Downloader) IsRunning() bool {
 }
 
 func (d *Downloader) clean() {
-	d.current = 0
-	d.total = 0
-	d.currentLatest = 0
 	d.perSecondHookOnce = sync.Once{}
 	d.errOnce = sync.Once{}
 	d.err = nil
