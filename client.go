@@ -241,22 +241,29 @@ func (c *Client) GetProgress(reqParams []BatchReq) (int64, int64, error) {
 				if err != nil {
 					return err
 				}
+
 				resumableInfo := &MultiCPInfo{
 					LastModified:     resp.Header.Get("Last-Modified"),
 					Size:             resp.ContentLength,
 					DownloadedBlocks: map[int]*DownloadedBlock{},
 				}
-				cpFile := fmt.Sprintf("%s.cp", req.Dst)
-				ok, err := checkDownloadedParts(resumableInfo, cpFile, chunks)
-				if err != nil {
-					return err
-				}
-				if ok {
-					for _, v := range chunks {
-						atomic.AddInt64(&current, v.Completed)
-					}
-				} else {
+
+				fi, err := os.Stat(req.Dst)
+				if err == nil && fi.Size() == resp.ContentLength {
 					getFileSize()
+				} else {
+					partInfo := fmt.Sprintf("%s%s.%s.cp", filepath.Dir(req.Dst), string(os.PathSeparator), filepath.Base(req.Dst))
+					ok, err := checkDownloadedParts(resumableInfo, partInfo, chunks)
+					if err != nil {
+						return err
+					}
+					if ok {
+						for _, v := range chunks {
+							atomic.AddInt64(&current, v.Completed)
+						}
+					} else {
+						getFileSize()
+					}
 				}
 			} else {
 				getFileSize()
@@ -462,10 +469,6 @@ func (c *Client) headRequest(resp *Response) stateFunc {
 	resp.Request.HTTPRequest.Host = resp.HTTPResponse.Request.Host
 
 	if !c.downloadOptions.disablePartDownload {
-		if resp.HTTPResponse.ContentLength == resp.fi.Size() {
-			return c.closeResponse
-		}
-
 		chunks, partNum, err := SplitSizeIntoChunks(resp.HTTPResponse.ContentLength, c.downloadOptions.partSize)
 		if err != nil {
 			resp.err = err
@@ -540,12 +543,11 @@ func (c *Client) getRequestParts(resp *Response) stateFunc {
 	}()
 
 	go func() {
-		cpFile := fmt.Sprintf("%s.cp", resp.Request.Filename)
 		defer func() {
 			downloadBytes := resp.BytesComplete()
 			totalBytes := resp.HTTPResponse.ContentLength
 			if downloadBytes == totalBytes {
-				_ = os.Remove(cpFile)
+				_ = os.Remove(resp.Request.PartInfo)
 			}
 		}()
 
@@ -589,7 +591,7 @@ func (c *Client) getRequestParts(resp *Response) stateFunc {
 			resLock.RUnlock()
 
 			data, _ := json.Marshal(resp.MultiCPInfo)
-			if err := os.WriteFile(cpFile, data, 0660); err != nil {
+			if err := os.WriteFile(resp.Request.PartInfo, data, 0660); err != nil {
 				resp.err = err
 				c.closeResponse(resp)
 			}
@@ -758,8 +760,7 @@ func (c *Client) copyFile(resp *Response) stateFunc {
 			DownloadedBlocks: map[int]*DownloadedBlock{},
 		}
 
-		cpFile := fmt.Sprintf("%s.cp", resp.Request.Filename)
-		resumableFlag, err := checkDownloadedParts(resumableInfo, cpFile, resp.Chunks)
+		resumableFlag, err := checkDownloadedParts(resumableInfo, resp.Request.PartInfo, resp.Chunks)
 		if err != nil {
 			resp.err = err
 			return c.closeResponse

@@ -1,6 +1,11 @@
 package grab
 
-import "context"
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+)
 
 type BatchReq struct {
 	Dst string
@@ -118,6 +123,8 @@ func GetBatch(reqParams []BatchReq, opts ...DownloadOptionFunc) (*BatchResponse,
 		if err != nil {
 			return nil, err
 		}
+
+		req.PartInfo = fmt.Sprintf("%s%s.%s.cp", filepath.Dir(reqParams[i].Dst), string(os.PathSeparator), filepath.Base(reqParams[i].Dst))
 		req.DownloadOptions = opt
 		reqs[i] = req
 	}

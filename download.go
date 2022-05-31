@@ -144,8 +144,9 @@ func (d *Downloader) StartDownload() error {
 
 	batchReq := make([]BatchReq, 0)
 	for _, v := range d.files {
+		filePath := d.path + string(os.PathSeparator) + v.FileName
 		batchReq = append(batchReq, BatchReq{
-			Dst: d.path + string(os.PathSeparator) + v.FileName,
+			Dst: filePath,
 			Url: v.Url,
 		})
 	}

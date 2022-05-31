@@ -101,6 +101,8 @@ type Request struct {
 
 	DownloadOptions *DownloadOptions
 
+	PartInfo string
+
 	// hash, checksum and deleteOnError - set via SetChecksum.
 	hash          hash.Hash
 	checksum      []byte
