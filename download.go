@@ -2,8 +2,8 @@ package grab
 
 import (
 	"context"
-  "errors"
-  "golang.org/x/sync/errgroup"
+	"errors"
+	"golang.org/x/sync/errgroup"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -119,9 +119,9 @@ func (d *Downloader) StartDownload() error {
 	d.startLock.Lock()
 	defer d.startLock.Unlock()
 
-  if atomic.LoadInt64(&d.status) == 1 {
-    return errors.New("already in progress download")
-  }
+	if !atomic.CompareAndSwapInt64(&d.status, 0, 1) {
+		return errors.New("already in progress download")
+	}
 
 	batchReq := make([]BatchReq, 0)
 	for _, v := range d.files {
@@ -189,11 +189,11 @@ func (d *Downloader) PauseDownload() error {
 	d.startLock.Lock()
 	defer d.startLock.Unlock()
 
-  if atomic.LoadInt64(&d.status) == 0 {
-    return errors.New("now is not in progress , please run StartDownload again")
-  }
+	if atomic.LoadInt64(&d.status) == 0 {
+		return errors.New("now is not in progress , please run StartDownload again")
+	}
 
-  d.cancel()
+	d.cancel()
 
 	for !d.Done() {
 		time.Sleep(time.Second)
