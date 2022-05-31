@@ -59,7 +59,6 @@ func main() {
 		}
 		fmt.Println("paused download")
 	})
-
+	downloader.Wait()
 	fmt.Println(time.Now().Sub(start))
-	select {}
 }

@@ -173,6 +173,7 @@ func (d *Downloader) PauseDownload() error {
 	for _, v := range d.resps {
 		err = v.Cancel()
 	}
+	time.Sleep(time.Second)
 	return err
 }
 
