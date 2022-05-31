@@ -57,7 +57,7 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 				return
 			default:
 				hook(current, total, nil)
-				if d.current == d.total {
+				if current == total {
 					return
 				}
 			}
@@ -113,8 +113,8 @@ func (d *Downloader) StartDownload() error {
 		return err
 	}
 	d.cancel = resp.Cancel
-	atomic.StoreInt64(&d.current, resp.Current)
-	atomic.StoreInt64(&d.total, resp.Total)
+	atomic.AddInt64(&d.current, resp.Current)
+	atomic.AddInt64(&d.total, resp.Total)
 
 	go func() {
 		for v := range resp.ResCh {
