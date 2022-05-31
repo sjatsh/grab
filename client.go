@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"golang.org/x/sync/errgroup"
 	"io"
 	"net/http"
 	"os"
@@ -151,7 +153,7 @@ func (c *Client) DoBatch(opt *DownloadOptions, requests ...*Request) <-chan *Res
 	respch := make(chan *Response, len(requests))
 
 	wg := sync.WaitGroup{}
-	for i := 0; i < len(requests); i++ {
+	for i := 0; i < opt.workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -169,6 +171,70 @@ func (c *Client) DoBatch(opt *DownloadOptions, requests ...*Request) <-chan *Res
 		close(respch)
 	}()
 	return respch
+}
+
+func (c *Client) GetProgress(reqParams []BatchReq) (int64, int64, error) {
+	var current, total int64
+
+	errWg := &errgroup.Group{}
+	for _, v := range reqParams {
+		req := v
+		errWg.Go(func() error {
+			resp, err := httpClient.Head(req.Url)
+			if err != nil {
+				return err
+			}
+			defer func() {
+				_ = resp.Body.Close()
+			}()
+
+			if resp.StatusCode != http.StatusOK {
+				if resp.StatusCode != http.StatusForbidden {
+					return ErrForbidden
+				}
+				return errors.New(resp.Status)
+			}
+			atomic.AddInt64(&total, resp.ContentLength)
+
+			getFileSize := func() {
+				fi, err := os.Stat(req.Dst)
+				if err == nil {
+					atomic.AddInt64(&current, fi.Size())
+				}
+			}
+
+			if resp.Header.Get("Accept-Ranges") == "bytes" {
+				chunks, _, err := SplitSizeIntoChunks(resp.ContentLength, c.downloadOptions.partSize)
+				if err != nil {
+					return err
+				}
+				resumableInfo := &MultiCPInfo{
+					LastModified:     resp.Header.Get("Last-Modified"),
+					Size:             resp.ContentLength,
+					DownloadedBlocks: map[int]*DownloadedBlock{},
+				}
+				cpFile := fmt.Sprintf("%s.cp", req.Dst)
+				ok, err := checkDownloadedParts(resumableInfo, cpFile, chunks)
+				if err != nil {
+					return err
+				}
+				if ok {
+					for _, v := range chunks {
+						atomic.AddInt64(&current, v.Completed)
+					}
+				} else {
+					getFileSize()
+				}
+			} else {
+				getFileSize()
+			}
+			return nil
+		})
+	}
+	if err := errWg.Wait(); err != nil {
+		return 0, 0, err
+	}
+	return current, total, nil
 }
 
 // An stateFunc is an action that mutates the state of a Response and returns
@@ -736,7 +802,7 @@ func closeWriter(resp *Response) {
 // close finalizes the Response
 func (c *Client) closeResponse(resp *Response) stateFunc {
 	if resp.IsComplete() {
-		panic("grab: developer error: response already closed")
+		return nil
 	}
 
 	resp.fi = nil

@@ -183,9 +183,7 @@ func downloadWorker(resp *Response, jobs <-chan *Jobs, results chan<- *Results) 
 			}
 			j.Range = FormatRangeOptions(opt)
 
-			res := &Results{
-				completed: j.Chunk.Completed,
-			}
+			res := &Results{}
 			for i := 1; i <= resp.downloadOptions.retryTimes; i++ {
 				if download(resp, res, i == 1, i == resp.downloadOptions.retryTimes, j, results) == nil {
 					break
@@ -242,7 +240,7 @@ func download(resp *Response, res *Results, firstTime, lastTime bool, j *Jobs, r
 	}
 
 	j.Chunk.Lock()
-	tf := newTransfer(resp.ctx, nil, NewFileWriter(fd, res), LimitReadCloser(httpResp.Body, j.Chunk.Size), nil)
+	tf := newTransfer(resp.ctx, nil, NewFileWriter(fd, res, resp.downloadOptions.writeHook), LimitReadCloser(httpResp.Body, j.Chunk.Size), nil)
 	j.Chunk.transfer = tf
 	j.Chunk.Unlock()
 	if firstTime {
@@ -285,13 +283,15 @@ func LimitReadCloser(r io.Reader, n int64) io.ReadCloser {
 
 type FileWriter struct {
 	io.WriteCloser
-	res *Results
+	res       *Results
+	writeHook func(n int64)
 }
 
-func NewFileWriter(w io.WriteCloser, res *Results) *FileWriter {
+func NewFileWriter(w io.WriteCloser, res *Results, writeHook func(n int64)) *FileWriter {
 	return &FileWriter{
 		WriteCloser: w,
 		res:         res,
+		writeHook:   writeHook,
 	}
 }
 
@@ -301,6 +301,9 @@ func (w *FileWriter) Write(p []byte) (int, error) {
 		return n, err
 	}
 	atomic.AddInt64(&w.res.completed, int64(n))
+	if w.writeHook != nil {
+		w.writeHook(int64(n))
+	}
 	return n, err
 }
 

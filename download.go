@@ -39,7 +39,6 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
-			d.Progress()
 			select {
 			case err := <-d.Err():
 				hook(atomic.LoadInt64(&d.current), atomic.LoadInt64(&d.total), err)
@@ -87,10 +86,17 @@ func (d *Downloader) StartDownload() error {
 			Url: v.Url,
 		})
 	}
-	resp, err := GetBatch(batchReq, d.opts...)
+
+	d.opts = append(d.opts, WithWriteHook(func(n int64) {
+		atomic.AddInt64(&d.current, n)
+	}))
+	current, total, resp, err := GetBatch(batchReq, d.opts...)
 	if err != nil {
 		return err
 	}
+	atomic.StoreInt64(&d.current, current)
+	atomic.StoreInt64(&d.total, total)
+
 	go func() {
 		for v := range resp {
 			d.Lock()
@@ -123,29 +129,6 @@ func (d *Downloader) PauseDownload() error {
 	return errWg.Wait()
 }
 
-func (d *Downloader) Progress() float64 {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		if len(d.resp) != len(d.files) {
-			continue
-		}
-		break
-	}
-
-	d.Lock()
-	defer d.Unlock()
-	var bytesComplete int64
-	var totalSize int64
-	for _, v := range d.resp {
-		bytesComplete += v.BytesComplete()
-		totalSize += v.Size()
-	}
-	atomic.StoreInt64(&d.current, bytesComplete)
-	atomic.StoreInt64(&d.total, totalSize)
-	return float64(bytesComplete) / float64(totalSize)
-}
-
 func (d *Downloader) Wait() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -157,7 +140,6 @@ func (d *Downloader) Wait() {
 	}
 
 	wg := &sync.WaitGroup{}
-	d.RLock()
 	wg.Add(len(d.resp))
 	for _, v := range d.resp {
 		resp := v
@@ -166,8 +148,8 @@ func (d *Downloader) Wait() {
 			resp.Wait()
 		}()
 	}
-	d.RUnlock()
 	wg.Wait()
+	time.Sleep(time.Second)
 }
 
 func (d *Downloader) Err() <-chan error {
@@ -181,14 +163,12 @@ func (d *Downloader) Err() <-chan error {
 	}
 
 	errWg := errgroup.Group{}
-	d.RLock()
 	for _, v := range d.resp {
 		resp := v
 		errWg.Go(func() error {
 			return resp.Err()
 		})
 	}
-	d.RUnlock()
 
 	errCh := make(chan error)
 	go func() {

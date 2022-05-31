@@ -46,10 +46,12 @@ func main() {
 	}()
 
 	downloader.WithProgressHook(func(current, total int64, err error) {
+		if err != nil {
+			panic(err)
+		}
 		fmt.Printf("%.1f%%\n", float64(current)/float64(total)*100)
 	})
-	if err := <-downloader.Err(); err != nil {
-		panic(err)
-	}
+
+	downloader.Wait()
 	fmt.Println(time.Now().Sub(start))
 }

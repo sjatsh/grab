@@ -29,6 +29,7 @@ type DownloadOptions struct {
 	retryTimes          int
 	partSize            int64
 	disablePartDownload bool
+	writeHook           func(n int64)
 }
 
 type DownloadOptionFunc func(opt *DownloadOptions)
@@ -57,6 +58,12 @@ func WithDisablePartDownload(disablePartDownload bool) DownloadOptionFunc {
 	}
 }
 
+func WithWriteHook(hook func(n int64)) DownloadOptionFunc {
+	return func(opt *DownloadOptions) {
+		opt.writeHook = hook
+	}
+}
+
 // GetBatch sends multiple HTTP requests and downloads the content of the
 // requested URLs to the given destination directory using the given number of
 // concurrent worker goroutines.
@@ -74,7 +81,7 @@ func WithDisablePartDownload(disablePartDownload bool) DownloadOptionFunc {
 //
 // For control over HTTP client headers, redirect policy, and other settings,
 // create a Client instead.
-func GetBatch(reqParams []BatchReq, opts ...DownloadOptionFunc) (<-chan *Response, error) {
+func GetBatch(reqParams []BatchReq, opts ...DownloadOptionFunc) (int64, int64, <-chan *Response, error) {
 	opt := &DownloadOptions{
 		workers:    10,
 		retryTimes: 3,
@@ -84,16 +91,21 @@ func GetBatch(reqParams []BatchReq, opts ...DownloadOptionFunc) (<-chan *Respons
 		v(opt)
 	}
 
+	current, total, err := DefaultClient.GetProgress(reqParams)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+
 	reqs := make([]*Request, len(reqParams))
 	for i := 0; i < len(reqs); i++ {
 		req, err := NewRequest(reqParams[i].Dst, reqParams[i].Url)
 		if err != nil {
-			return nil, err
+			return 0, 0, nil, err
 		}
 		req.DownloadOptions = opt
 		reqs[i] = req
 	}
 
 	ch := DefaultClient.DoBatch(opt, reqs...)
-	return ch, nil
+	return current, total, ch, nil
 }
