@@ -147,12 +147,12 @@ func (c *Response) Size() int64 {
 // the destination, including any bytes that were resumed from a previous
 // download.
 func (c *Response) BytesComplete() int64 {
-	bs := c.bytesResumed + c.transfer.N()
-	for _, v := range c.Chunks {
-		if v.transfer == nil {
-			continue
-		}
-		bs += v.transfer.N()
+	if !c.DownloadParts {
+		return c.bytesResumed + c.transfer.N()
+	}
+	var bs int64
+	for _, v := range c.MultiCPInfo.DownloadedBlocks {
+		bs += v.Completed
 	}
 	return bs
 }

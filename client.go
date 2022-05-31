@@ -462,6 +462,10 @@ func (c *Client) headRequest(resp *Response) stateFunc {
 	resp.Request.HTTPRequest.Host = resp.HTTPResponse.Request.Host
 
 	if !c.downloadOptions.disablePartDownload {
+		if resp.HTTPResponse.ContentLength == resp.fi.Size() {
+			return c.closeResponse
+		}
+
 		chunks, partNum, err := SplitSizeIntoChunks(resp.HTTPResponse.ContentLength, c.downloadOptions.partSize)
 		if err != nil {
 			resp.err = err
@@ -536,74 +540,91 @@ func (c *Client) getRequestParts(resp *Response) stateFunc {
 	}()
 
 	go func() {
+		cpFile := fmt.Sprintf("%s.cp", resp.Request.Filename)
+		defer func() {
+			downloadBytes := resp.BytesComplete()
+			totalBytes := resp.HTTPResponse.ContentLength
+			if downloadBytes == totalBytes {
+				_ = os.Remove(cpFile)
+			}
+		}()
+
+		writePartsInfo := func() {
+			var totalAddBytes int64
+
+			resLock.RLock()
+			for _, v := range downloadingJobs {
+				if v.err != nil {
+					resp.err = v.err
+					c.closeResponse(resp)
+					return
+				}
+				if v.done {
+					if v.dump {
+						continue
+					}
+					v.dump = true
+				}
+
+				block, ok := resp.MultiCPInfo.DownloadedBlocks[v.PartNumber]
+				if !ok {
+					block = &DownloadedBlock{
+						From: resp.Chunks[v.PartNumber-1].OffSet,
+						To:   resp.Chunks[v.PartNumber-1].OffSet + resp.Chunks[v.PartNumber-1].Size - 1,
+					}
+					resp.MultiCPInfo.DownloadedBlocks[v.PartNumber] = block
+				}
+
+				completedBytes := v.completed
+				addBytes := completedBytes
+				if v.latestWriteBytes > 0 {
+					addBytes = completedBytes - v.latestWriteBytes
+				}
+				block.Completed += addBytes
+				v.latestWriteBytes = completedBytes
+
+				totalAddBytes += addBytes
+
+			}
+			resLock.RUnlock()
+
+			data, _ := json.Marshal(resp.MultiCPInfo)
+			if err := os.WriteFile(cpFile, data, 0660); err != nil {
+				resp.err = err
+				c.closeResponse(resp)
+			}
+
+			if resp.downloadOptions.writeHook != nil {
+				resp.downloadOptions.writeHook(totalAddBytes)
+			}
+		}
+
+		closeFd := func() {
+			resLock.RLock()
+			for _, v := range downloadingJobs {
+				if v.fd != nil {
+					_ = v.fd.Close()
+					v.fd = nil
+				}
+				if v.body != nil {
+					_ = v.body.Close()
+					v.body = nil
+				}
+			}
+			resLock.RUnlock()
+		}
+
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
+
 		for range ticker.C {
 			select {
 			case <-resp.Done:
-				resLock.RLock()
-				for _, v := range downloadingJobs {
-					if v.fd != nil {
-						_ = v.fd.Close()
-						v.fd = nil
-					}
-					if v.body != nil {
-						_ = v.body.Close()
-						v.body = nil
-					}
-				}
-				resLock.RUnlock()
+				closeFd()
+				writePartsInfo()
 				return
 			default:
-
-				var totalAddBytes int64
-
-				resLock.RLock()
-				for _, v := range downloadingJobs {
-					if v.err != nil {
-						resp.err = v.err
-						c.closeResponse(resp)
-						return
-					}
-					if v.done {
-						if v.dump {
-							continue
-						}
-						v.dump = true
-					}
-
-					block, ok := resp.MultiCPInfo.DownloadedBlocks[v.PartNumber]
-					if !ok {
-						block = &DownloadedBlock{
-							From: resp.Chunks[v.PartNumber-1].OffSet,
-							To:   resp.Chunks[v.PartNumber-1].OffSet + resp.Chunks[v.PartNumber-1].Size - 1,
-						}
-						resp.MultiCPInfo.DownloadedBlocks[v.PartNumber] = block
-					}
-
-					completedBytes := v.completed
-					addBytes := completedBytes
-					if v.latestWriteBytes > 0 {
-						addBytes = completedBytes - v.latestWriteBytes
-					}
-					block.Completed += addBytes
-					v.latestWriteBytes = completedBytes
-
-					totalAddBytes += addBytes
-
-				}
-				resLock.RUnlock()
-
-				data, _ := json.Marshal(resp.MultiCPInfo)
-				cpFile := fmt.Sprintf("%s.cp", resp.Request.Filename)
-				if err := os.WriteFile(cpFile, data, 0660); err != nil {
-					resp.err = err
-					c.closeResponse(resp)
-				}
-
-				if resp.downloadOptions.writeHook != nil {
-					resp.downloadOptions.writeHook(totalAddBytes)
-				}
+				writePartsInfo()
 			}
 		}
 	}()
