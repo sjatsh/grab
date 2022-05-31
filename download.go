@@ -16,14 +16,15 @@ type DownloadFile struct {
 }
 
 type Downloader struct {
-	l         sync.RWMutex
-	path      string
-	files     []DownloadFile
-	opts      []DownloadOptionFunc
-	lastBps   float64
-	cancel    context.CancelFunc
-	startLock sync.Mutex
-	status    int64
+	l            sync.RWMutex
+	path         string
+	files        []DownloadFile
+	opts         []DownloadOptionFunc
+	lastBps      float64
+	cancel       context.CancelFunc
+	startLock    sync.Mutex
+	status       int64
+	progressHook func(current, total int64, err error)
 
 	currentLatest     int64
 	current           int64
@@ -47,7 +48,7 @@ func NewDownloader(path string, files []DownloadFile, opts ...DownloadOptionFunc
 }
 
 func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)) {
-	go func() {
+	progressFunc := func() {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
@@ -66,21 +67,26 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 
 			select {
 			case <-d.hasErr:
-				hook(current, total, d.err)
+				d.progressHook(current, total, d.err)
 				d.startLock.Unlock()
 				return
 			default:
-				hook(current, total, nil)
+				d.progressHook(current, total, nil)
 				if current == total {
 					d.startLock.Unlock()
 					return
 				}
 			}
-
 			d.startLock.Unlock()
-
 		}
-	}()
+	}
+
+	if d.progressHook != nil {
+		go progressFunc()
+		return
+	}
+	d.progressHook = hook
+	go progressFunc()
 }
 
 func (d *Downloader) WithErrHook(hook func(err error)) {
@@ -117,7 +123,12 @@ func (d *Downloader) StartDownload() error {
 	}
 	d.clean()
 	d.startLock.Lock()
-	defer d.startLock.Unlock()
+	defer func() {
+		if d.progressHook != nil {
+			d.WithProgressHook(nil)
+		}
+		d.startLock.Unlock()
+	}()
 
 	if !atomic.CompareAndSwapInt64(&d.status, 0, 1) {
 		return errors.New("already in progress download")
