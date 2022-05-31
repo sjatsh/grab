@@ -35,12 +35,12 @@ type Downloader struct {
 	currentLatest     int64
 	current           int64
 	total             int64
+	errChClosed       int64
+	done              int64
 	perSecondHookOnce sync.Once
 	errOnce           sync.Once
 	err               error
-	errChClosed       int64
 	hasErr            chan struct{}
-	done              int64
 	resps             []*Response
 }
 
@@ -160,8 +160,11 @@ func (d *Downloader) StartDownload() error {
 		return err
 	}
 	d.cancel = resp.Cancel
-	atomic.AddInt64(&d.current, resp.Current)
-	atomic.AddInt64(&d.total, resp.Total)
+
+	if status == StatusEmpty {
+		atomic.AddInt64(&d.current, resp.Current)
+		atomic.AddInt64(&d.total, resp.Total)
+	}
 
 	go func() {
 		for v := range resp.ResCh {
@@ -289,11 +292,11 @@ func (d *Downloader) IsRunning() bool {
 }
 
 func (d *Downloader) clean() {
+	atomic.StoreInt64(&d.errChClosed, 0)
+	atomic.StoreInt64(&d.done, 0)
 	d.perSecondHookOnce = sync.Once{}
 	d.errOnce = sync.Once{}
 	d.err = nil
-	d.errChClosed = 0
 	d.hasErr = make(chan struct{})
-	d.done = 0
 	d.resps = make([]*Response, 0)
 }
