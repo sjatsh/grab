@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	StatusEmpty int64 = 0
-	StatusStart int64 = 1
-	StatusStop  int64 = 2
+	StatusEmpty    int64 = 0
+	StatusStart    int64 = 1
+	StatusStopped  int64 = 2
+	StatusStopping int64 = 3
 )
 
 type DownloadFile struct {
@@ -32,7 +33,6 @@ type Downloader struct {
 	status       int64
 	progressHook func(current, total int64, err error)
 
-	currentLatest     int64
 	current           int64
 	total             int64
 	errChClosed       int64
@@ -64,6 +64,9 @@ func (d *Downloader) StartDownload() error {
 	if status == StatusStart {
 		return errors.New("already in progress download")
 	}
+	if status == StatusStopping {
+		return errors.New("stopping download, please retry later")
+	}
 
 	defer func() {
 		if d.progressHook != nil {
@@ -83,15 +86,25 @@ func (d *Downloader) StartDownload() error {
 		})
 	}
 
-	resp, err := GetBatch(batchReq, append(d.opts, WithWriteHook(func(n int64) {
+	opts := append(d.opts, WithWriteHook(func(n int64) {
+		if atomic.LoadInt64(&d.status) != StatusStart {
+			return
+		}
 		atomic.AddInt64(&d.current, n)
-	}))...)
+	}))
+
+	current, total, err := DefaultClient.WithDownloadOptions(opts...).GetProgress(batchReq)
+	if err != nil {
+		return err
+	}
+	atomic.StoreInt64(&d.current, current)
+	atomic.StoreInt64(&d.total, total)
+
+	resp, err := GetBatch(batchReq, opts...)
 	if err != nil {
 		return err
 	}
 	d.cancel = resp.Cancel
-	atomic.AddInt64(&d.current, resp.Current)
-	atomic.AddInt64(&d.total, resp.Total)
 
 	go func() {
 		for v := range resp.ResCh {
@@ -137,13 +150,17 @@ func (d *Downloader) StartDownload() error {
 }
 
 func (d *Downloader) PauseDownload() error {
-	if atomic.LoadInt64(&d.status) == StatusStop {
-		return errors.New("now is not in progress , please run StartDownload again")
-	}
 	d.startLock.Lock()
 	defer d.startLock.Unlock()
 
-	atomic.StoreInt64(&d.status, StatusStop)
+	if atomic.LoadInt64(&d.status) == StatusStopped {
+		return errors.New("now is not in progress , please run StartDownload again")
+	}
+	if atomic.LoadInt64(&d.status) == StatusStopping {
+		return nil
+	}
+	defer atomic.StoreInt64(&d.status, StatusStopped)
+	atomic.StoreInt64(&d.status, StatusStopping)
 
 	d.cancel()
 
@@ -157,7 +174,9 @@ func (d *Downloader) PauseDownload() error {
 	var err error
 	for _, v := range d.resps {
 		err = v.Cancel()
+		err = v.Err()
 	}
+	time.Sleep(time.Second)
 	return err
 }
 
@@ -166,20 +185,13 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
-			if atomic.LoadInt64(&d.status) == StatusStop {
+			status := atomic.LoadInt64(&d.status)
+			if status == StatusStopped || status == StatusStopping {
 				return
 			}
 
 			current := atomic.LoadInt64(&d.current)
 			total := atomic.LoadInt64(&d.total)
-			if current > total {
-				current = total
-			}
-			if d.currentLatest != 0 && current <= d.currentLatest && current < total {
-				continue
-			}
-			atomic.StoreInt64(&d.currentLatest, current)
-
 			select {
 			case <-d.hasErr:
 				d.progressHook(current, total, d.err)
@@ -239,6 +251,7 @@ func (d *Downloader) Wait() {
 	for _, v := range d.resps {
 		v.Wait()
 	}
+	time.Sleep(time.Second)
 }
 
 func (d *Downloader) Err() error {
@@ -286,11 +299,13 @@ func (d *Downloader) IsRunning() bool {
 }
 
 func (d *Downloader) clean() {
-	atomic.StoreInt64(&d.currentLatest, 0)
 	atomic.StoreInt64(&d.current, 0)
 	atomic.StoreInt64(&d.total, 0)
 	atomic.StoreInt64(&d.errChClosed, 0)
 	atomic.StoreInt64(&d.done, 0)
+	d.l = sync.RWMutex{}
+	d.lastBps = 0
+	d.cancel = nil
 	d.perSecondHookOnce = sync.Once{}
 	d.errOnce = sync.Once{}
 	d.err = nil

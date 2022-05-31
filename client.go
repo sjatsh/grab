@@ -108,6 +108,15 @@ func (c *Client) Do(req *Request) *Response {
 	return resp
 }
 
+func (c *Client) WithDownloadOptions(optsFunc ...DownloadOptionFunc) *Client {
+	opts := &DownloadOptions{}
+	for _, v := range optsFunc {
+		v(opts)
+	}
+	c.downloadOptions = *opts
+	return c
+}
+
 // DoChannel executes all requests sent through the given Request channel, one
 // at a time, until it is closed by another goroutine. The caller is blocked
 // until the Request channel is closed and all transfers have completed. All

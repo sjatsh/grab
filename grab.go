@@ -89,10 +89,8 @@ func WithWriteHook(hook func(n int64)) DownloadOptionFunc {
 // create a Client instead.
 
 type BatchResponse struct {
-	Current int64
-	Total   int64
-	ResCh   <-chan *Response
-	Cancel  context.CancelFunc
+	ResCh  <-chan *Response
+	Cancel context.CancelFunc
 }
 
 func GetBatch(reqParams []BatchReq, opts ...DownloadOptionFunc) (*BatchResponse, error) {
@@ -105,16 +103,9 @@ func GetBatch(reqParams []BatchReq, opts ...DownloadOptionFunc) (*BatchResponse,
 		v(opt)
 	}
 
-	current, total, err := DefaultClient.GetProgress(reqParams)
-	if err != nil {
-		return nil, err
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	resp := &BatchResponse{
-		Current: current,
-		Total:   total,
-		Cancel:  cancel,
+		Cancel: cancel,
 	}
 
 	reqs := make([]*Request, len(reqParams))
