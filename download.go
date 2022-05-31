@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+const (
+	StatusStart int64 = 1
+	StatusStop  int64 = 2
+)
+
 type DownloadFile struct {
 	Url      string `json:"url" yaml:"url"`
 	FileName string `json:"fileName" yaml:"fileName"`
@@ -52,7 +57,9 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
-			d.startLock.Lock()
+			if atomic.LoadInt64(&d.status) == StatusStop {
+				return
+			}
 
 			current := atomic.LoadInt64(&d.current)
 			total := atomic.LoadInt64(&d.total)
@@ -60,7 +67,6 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 				current = total
 			}
 			if d.currentLatest != 0 && current <= d.currentLatest && current < total {
-				d.startLock.Unlock()
 				continue
 			}
 			d.currentLatest = current
@@ -68,16 +74,13 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 			select {
 			case <-d.hasErr:
 				d.progressHook(current, total, d.err)
-				d.startLock.Unlock()
 				return
 			default:
 				d.progressHook(current, total, nil)
 				if current == total {
-					d.startLock.Unlock()
 					return
 				}
 			}
-			d.startLock.Unlock()
 		}
 	}
 
@@ -121,7 +124,7 @@ func (d *Downloader) StartDownload() error {
 	if len(d.files) == 0 {
 		return nil
 	}
-	if atomic.LoadInt64(&d.status) == 1 {
+	if atomic.LoadInt64(&d.status) == StatusStart {
 		return errors.New("already in progress download")
 	}
 
@@ -132,7 +135,7 @@ func (d *Downloader) StartDownload() error {
 			d.WithProgressHook(nil)
 		}
 		d.startLock.Unlock()
-		atomic.StoreInt64(&d.status, 1)
+		atomic.StoreInt64(&d.status, StatusStart)
 	}()
 
 	batchReq := make([]BatchReq, 0)
@@ -198,13 +201,13 @@ func (d *Downloader) StartDownload() error {
 }
 
 func (d *Downloader) PauseDownload() error {
-	if atomic.LoadInt64(&d.status) == 0 {
+	if atomic.LoadInt64(&d.status) == StatusStop {
 		return errors.New("now is not in progress , please run StartDownload again")
 	}
 	d.startLock.Lock()
 	defer func() {
 		d.startLock.Unlock()
-		atomic.StoreInt64(&d.status, 0)
+		atomic.StoreInt64(&d.status, StatusStop)
 	}()
 
 	d.cancel()
@@ -220,7 +223,6 @@ func (d *Downloader) PauseDownload() error {
 	for _, v := range d.resps {
 		err = v.Cancel()
 	}
-	time.Sleep(time.Second * 3)
 	return err
 }
 
@@ -277,7 +279,7 @@ func (d *Downloader) Done() bool {
 }
 
 func (d *Downloader) IsRunning() bool {
-	return atomic.LoadInt64(&d.status) == 1
+	return atomic.LoadInt64(&d.status) == StatusStart
 }
 
 func (d *Downloader) clean() {
