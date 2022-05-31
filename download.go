@@ -189,7 +189,7 @@ func (d *Downloader) PauseDownload() error {
 	d.startLock.Lock()
 	defer d.startLock.Unlock()
 
-	if atomic.LoadInt64(&d.status) == 0 {
+	if !atomic.CompareAndSwapInt64(&d.status, 1, 0) {
 		return errors.New("now is not in progress , please run StartDownload again")
 	}
 
