@@ -177,6 +177,7 @@ func (c *Client) DoBatch(ctx context.Context, opt *DownloadOptions, requests ...
 		}
 
 	END:
+		exist := make(chan struct{})
 		close(reqch)
 		if !paused {
 			go func() {
@@ -186,6 +187,8 @@ func (c *Client) DoBatch(ctx context.Context, opt *DownloadOptions, requests ...
 						continue
 					}
 					select {
+					case <-exist:
+						return
 					case <-ctx.Done():
 						paused = true
 						close(respch)
@@ -195,6 +198,7 @@ func (c *Client) DoBatch(ctx context.Context, opt *DownloadOptions, requests ...
 			}()
 		}
 		wg.Wait()
+		close(exist)
 		if !paused {
 			close(respch)
 		}
