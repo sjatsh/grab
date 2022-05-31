@@ -198,7 +198,7 @@ func (d *Downloader) StartDownload() error {
 }
 
 func (d *Downloader) PauseDownload() error {
-  if atomic.LoadInt64(&d.status) == 0 {
+	if atomic.LoadInt64(&d.status) == 0 {
 		return errors.New("now is not in progress , please run StartDownload again")
 	}
 	d.startLock.Lock()
@@ -274,6 +274,10 @@ func (d *Downloader) BytesPerSecond() float64 {
 
 func (d *Downloader) Done() bool {
 	return atomic.LoadInt64(&d.done) == 1
+}
+
+func (d *Downloader) IsRunning() bool {
+	return atomic.LoadInt64(&d.status) == 1
 }
 
 func (d *Downloader) clean() {
