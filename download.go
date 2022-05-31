@@ -34,6 +34,7 @@ type Downloader struct {
 	progressHook func(current, total int64, err error)
 
 	current           int64
+	lastCurrent       int64
 	total             int64
 	errChClosed       int64
 	done              int64
@@ -192,7 +193,16 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 			}
 
 			current := atomic.LoadInt64(&d.current)
+			lastCurrent := atomic.LoadInt64(&d.lastCurrent)
 			total := atomic.LoadInt64(&d.total)
+			if current > total {
+				current = total
+			}
+			if current == lastCurrent && current < total {
+				continue
+			}
+			atomic.StoreInt64(&d.lastCurrent, current)
+
 			select {
 			case <-d.hasErr:
 				d.progressHook(current, total, d.err)
@@ -301,6 +311,7 @@ func (d *Downloader) IsRunning() bool {
 
 func (d *Downloader) clean() {
 	atomic.StoreInt64(&d.current, 0)
+	atomic.StoreInt64(&d.lastCurrent, 0)
 	atomic.StoreInt64(&d.total, 0)
 	atomic.StoreInt64(&d.errChClosed, 0)
 	atomic.StoreInt64(&d.done, 0)
