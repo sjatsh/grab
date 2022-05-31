@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"golang.org/x/sync/errgroup"
 	"io"
-	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -593,7 +592,7 @@ func (c *Client) getRequestParts(resp *Response) stateFunc {
 
 				data, _ := json.Marshal(resp.MultiCPInfo)
 				cpFile := fmt.Sprintf("%s.cp", resp.Request.Filename)
-				if err := os.WriteFile(cpFile, data, fs.ModePerm); err != nil {
+				if err := os.WriteFile(cpFile, data, 0660); err != nil {
 					resp.err = err
 					c.closeResponse(resp)
 				}

@@ -222,7 +222,7 @@ func download(resp *Response, res *Results, firstTime, lastTime bool, j *Jobs, r
 		res.err = err
 		return err
 	}
-	if _, err = fd.Seek(j.Chunk.OffSet, io.SeekStart); err != nil {
+	if _, err = fd.Seek(j.Chunk.OffSet+j.Chunk.Completed, io.SeekStart); err != nil {
 		res.err = err
 		return err
 	}
