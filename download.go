@@ -2,7 +2,8 @@ package grab
 
 import (
 	"context"
-	"golang.org/x/sync/errgroup"
+  "errors"
+  "golang.org/x/sync/errgroup"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -15,12 +16,14 @@ type DownloadFile struct {
 }
 
 type Downloader struct {
-	l       sync.RWMutex
-	path    string
-	files   []DownloadFile
-	opts    []DownloadOptionFunc
-	lastBps float64
-	cancel  context.CancelFunc
+	l         sync.RWMutex
+	path      string
+	files     []DownloadFile
+	opts      []DownloadOptionFunc
+	lastBps   float64
+	cancel    context.CancelFunc
+	startLock sync.Mutex
+	status    int64
 
 	currentLatest     int64
 	current           int64
@@ -48,12 +51,15 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
+			d.startLock.Lock()
+
 			current := atomic.LoadInt64(&d.current)
 			total := atomic.LoadInt64(&d.total)
 			if current > total {
 				current = total
 			}
 			if d.currentLatest != 0 && current <= d.currentLatest && current < total {
+				d.startLock.Unlock()
 				continue
 			}
 			d.currentLatest = current
@@ -61,13 +67,18 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 			select {
 			case <-d.hasErr:
 				hook(current, total, d.err)
+				d.startLock.Unlock()
 				return
 			default:
 				hook(current, total, nil)
 				if current == total {
+					d.startLock.Unlock()
 					return
 				}
 			}
+
+			d.startLock.Unlock()
+
 		}
 	}()
 }
@@ -105,6 +116,12 @@ func (d *Downloader) StartDownload() error {
 		return nil
 	}
 	d.clean()
+	d.startLock.Lock()
+	defer d.startLock.Unlock()
+
+  if atomic.LoadInt64(&d.status) == 1 {
+    return errors.New("already in progress download")
+  }
 
 	batchReq := make([]BatchReq, 0)
 	for _, v := range d.files {
@@ -169,7 +186,14 @@ func (d *Downloader) StartDownload() error {
 }
 
 func (d *Downloader) PauseDownload() error {
-	d.cancel()
+	d.startLock.Lock()
+	defer d.startLock.Unlock()
+
+  if atomic.LoadInt64(&d.status) == 0 {
+    return errors.New("now is not in progress , please run StartDownload again")
+  }
+
+  d.cancel()
 
 	for !d.Done() {
 		time.Sleep(time.Second)
