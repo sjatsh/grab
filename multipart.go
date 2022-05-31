@@ -124,12 +124,8 @@ func checkDownloadedParts(opt *MultiCPInfo, cfFile string, chunks []*Chunk) (boo
 	// checkpoint 文件不存在
 	if err != nil && os.IsNotExist(err) {
 		// 创建 checkpoint 文件
-		fd, err := os.OpenFile(cfFile, os.O_RDONLY|os.O_CREATE|os.O_TRUNC, 0660)
-		if err != nil {
-			return false, err
-		}
-		_ = fd.Close()
-		return false, nil
+		err := CreateHideFile(cfFile)
+		return false, err
 	}
 	if err != nil {
 		return false, err

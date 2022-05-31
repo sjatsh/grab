@@ -248,11 +248,12 @@ func (c *Client) GetProgress(reqParams []BatchReq) (int64, int64, error) {
 					DownloadedBlocks: map[int]*DownloadedBlock{},
 				}
 
+				partInfo := fmt.Sprintf("%s%s.%s.cp", filepath.Dir(req.Dst), string(os.PathSeparator), filepath.Base(req.Dst))
 				fi, err := os.Stat(req.Dst)
 				if err == nil && fi.Size() == resp.ContentLength {
+					_ = os.Remove(partInfo)
 					getFileSize()
 				} else {
-					partInfo := fmt.Sprintf("%s%s.%s.cp", filepath.Dir(req.Dst), string(os.PathSeparator), filepath.Base(req.Dst))
 					ok, err := checkDownloadedParts(resumableInfo, partInfo, chunks)
 					if err != nil {
 						return err
