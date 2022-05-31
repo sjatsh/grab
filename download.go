@@ -70,7 +70,7 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 			if d.currentLatest != 0 && current <= d.currentLatest && current < total {
 				continue
 			}
-			d.currentLatest = current
+			atomic.StoreInt64(&d.currentLatest, current)
 
 			select {
 			case <-d.hasErr:
@@ -215,10 +215,9 @@ func (d *Downloader) PauseDownload() error {
 		return errors.New("now is not in progress , please run StartDownload again")
 	}
 	d.startLock.Lock()
-	defer func() {
-		d.startLock.Unlock()
-		atomic.StoreInt64(&d.status, StatusStop)
-	}()
+	defer d.startLock.Unlock()
+
+	atomic.StoreInt64(&d.status, StatusStop)
 
 	d.cancel()
 
