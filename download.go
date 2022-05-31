@@ -105,7 +105,7 @@ func (d *Downloader) StartDownload() error {
 		return nil
 	}
   d.clean()
-  
+
 	batchReq := make([]BatchReq, 0)
 	for _, v := range d.files {
 		batchReq = append(batchReq, BatchReq{
