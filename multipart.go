@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 )
 
+var ErrForbidden = errors.New("server returned 403 Forbidden")
+
 type Chunk struct {
 	sync.RWMutex
 	Number    int   `json:"number,omitempty"`
@@ -201,7 +203,7 @@ func download(resp *Response, res *Results, firstTime, lastTime bool, j *Jobs, r
 		"Range": {j.Range},
 	})
 	if httpResp.StatusCode == http.StatusForbidden {
-		res.err = errors.New("server returned 403 Forbidden")
+		res.err = ErrForbidden
 		if firstTime {
 			results <- res
 		}
@@ -253,6 +255,12 @@ func download(resp *Response, res *Results, firstTime, lastTime bool, j *Jobs, r
 	case <-resp.ctx.Done():
 		return nil
 	default:
+	}
+
+	if n != j.Chunk.Size && err == nil {
+		// 说明链接失效了
+		res.err = ErrForbidden
+		return nil
 	}
 
 	copyErr := n != j.Chunk.Size || err != nil

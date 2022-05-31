@@ -4,6 +4,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,9 +21,10 @@ type Downloader struct {
 	errHookOnce       sync.Once
 	progressHookOnce  sync.Once
 	perSecondHookOnce sync.Once
-	lastProgress      float64
-	lastBps           float64
 	opts              []DownloadOptionFunc
+	lastBps           float64
+	current           int64
+	total             int64
 }
 
 func NewDownloader(path string, files []DownloadFile, opts ...DownloadOptionFunc) *Downloader {
@@ -34,18 +36,18 @@ func NewDownloader(path string, files []DownloadFile, opts ...DownloadOptionFunc
 	}
 }
 
-func (d *Downloader) WithProgressHook(hook func(progress float64) bool) {
+func (d *Downloader) WithProgressHook(hook func(current, total int64, err error) bool) {
 	d.progressHookOnce.Do(func() {
 		go func() {
 			ticker := time.NewTicker(time.Second)
 			defer ticker.Stop()
 			for range ticker.C {
-				progress := d.Progress()
-				if progress > 0 && (d.lastProgress == 0 || progress-d.lastProgress >= 0.001) {
-					d.lastProgress = progress
-					if !hook(progress) {
-						return
-					}
+				d.Progress()
+				select {
+				case err := <-d.Err():
+					hook(atomic.LoadInt64(&d.current), atomic.LoadInt64(&d.total), err)
+				default:
+					hook(atomic.LoadInt64(&d.current), atomic.LoadInt64(&d.total), nil)
 				}
 			}
 		}()
@@ -54,7 +56,9 @@ func (d *Downloader) WithProgressHook(hook func(progress float64) bool) {
 
 func (d *Downloader) WithErrHook(hook func(err error)) {
 	d.errHookOnce.Do(func() {
-		go hook(d.Err())
+		go func() {
+			hook(<-d.Err())
+		}()
 	})
 }
 
@@ -136,14 +140,12 @@ func (d *Downloader) Progress() float64 {
 
 	var bytesComplete int64
 	var totalSize int64
-
-	d.RLock()
 	for _, v := range d.resp {
 		bytesComplete += v.BytesComplete()
 		totalSize += v.Size()
 	}
-	d.RUnlock()
-
+	atomic.StoreInt64(&d.current, bytesComplete)
+	atomic.StoreInt64(&d.total, totalSize)
 	return float64(bytesComplete) / float64(totalSize)
 }
 
@@ -171,7 +173,7 @@ func (d *Downloader) Wait() {
 	wg.Wait()
 }
 
-func (d *Downloader) Err() error {
+func (d *Downloader) Err() <-chan error {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for range ticker.C {
@@ -190,7 +192,12 @@ func (d *Downloader) Err() error {
 		})
 	}
 	d.RUnlock()
-	return errWg.Wait()
+
+	errCh := make(chan error)
+	go func() {
+		errCh <- errWg.Wait()
+	}()
+	return errCh
 }
 
 func (d *Downloader) BytesPerSecond() float64 {

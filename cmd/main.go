@@ -45,11 +45,14 @@ func main() {
 		_ = http.ListenAndServe("0.0.0.0:6060", nil)
 	}()
 
-	downloader.WithProgressHook(func(progress float64) bool {
-		fmt.Printf("%.1f%%\n", progress*100)
+	downloader.WithProgressHook(func(current, total int64, err error) bool {
+		fmt.Printf("%.1f%%\n", float64(current)/float64(total)*100)
+		if err != nil {
+			return false
+		}
 		return true
 	})
-	if err := downloader.Err(); err != nil {
+	if err := <-downloader.Err(); err != nil {
 		panic(err)
 	}
 	fmt.Println(time.Now().Sub(start))

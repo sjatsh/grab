@@ -151,7 +151,7 @@ func (c *Client) DoBatch(opt *DownloadOptions, requests ...*Request) <-chan *Res
 	respch := make(chan *Response, len(requests))
 
 	wg := sync.WaitGroup{}
-	for i := 0; i < opt.workers; i++ {
+	for i := 0; i < len(requests); i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
