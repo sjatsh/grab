@@ -15,16 +15,16 @@ type DownloadFile struct {
 }
 
 type Downloader struct {
-	l             sync.RWMutex
-	path          string
-	files         []DownloadFile
-	opts          []DownloadOptionFunc
-	lastBps       float64
-	currentLatest int64
-	current       int64
-	total         int64
-	cancel        context.CancelFunc
+	l       sync.RWMutex
+	path    string
+	files   []DownloadFile
+	opts    []DownloadOptionFunc
+	lastBps float64
+	cancel  context.CancelFunc
 
+	currentLatest     int64
+	current           int64
+	total             int64
 	perSecondHookOnce sync.Once
 	errOnce           sync.Once
 	err               error
@@ -104,7 +104,7 @@ func (d *Downloader) StartDownload() error {
 	if len(d.files) == 0 {
 		return nil
 	}
-  d.clean()
+	d.clean()
 
 	batchReq := make([]BatchReq, 0)
 	for _, v := range d.files {
@@ -239,6 +239,9 @@ func (d *Downloader) Done() bool {
 }
 
 func (d *Downloader) clean() {
+	d.current = 0
+	d.total = 0
+	d.currentLatest = 0
 	d.perSecondHookOnce = sync.Once{}
 	d.errOnce = sync.Once{}
 	d.err = nil
