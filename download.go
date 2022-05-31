@@ -22,6 +22,7 @@ type Downloader struct {
 	perSecondHookOnce sync.Once
 	opts              []DownloadOptionFunc
 	lastBps           float64
+	currentLatest     int64
 	current           int64
 	total             int64
 	errOnce           sync.Once
@@ -51,6 +52,11 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 			if current > total {
 				current = total
 			}
+			if d.currentLatest != 0 && current <= d.currentLatest && current < total {
+				continue
+			}
+			d.currentLatest = current
+
 			select {
 			case <-d.hasErr:
 				hook(current, total, d.err)
