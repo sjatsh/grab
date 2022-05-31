@@ -87,7 +87,8 @@ func (d *Downloader) StartDownload() error {
 	}
 
 	opts := append(d.opts, WithWriteHook(func(n int64) {
-		if atomic.LoadInt64(&d.status) != StatusStart {
+		status := atomic.LoadInt64(&d.status)
+		if status == StatusStopped || status == StatusStopping {
 			return
 		}
 		atomic.AddInt64(&d.current, n)
