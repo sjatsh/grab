@@ -244,7 +244,8 @@ func download(resp *Response, res *Results, firstTime, lastTime bool, j *Jobs, r
 	}
 
 	j.Chunk.Lock()
-	tf := newTransfer(resp.ctx, nil, NewFileWriter(fd, res), LimitReadCloser(httpResp.Body, j.Chunk.Size), nil)
+	limitReader := LimitReadCloser(httpResp.Body, j.Chunk.Size-j.Chunk.Completed)
+	tf := newTransfer(resp.ctx, nil, NewFileWriter(fd, res), limitReader, nil)
 	j.Chunk.transfer = tf
 	j.Chunk.Unlock()
 	if firstTime {
