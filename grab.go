@@ -1,5 +1,7 @@
 package grab
 
+import "context"
+
 type BatchReq struct {
 	Dst string
 	Url string
@@ -15,12 +17,13 @@ type BatchReq struct {
 // For non-blocking calls or control over HTTP client headers, redirect policy,
 // and other settings, create a Client instead.
 func Get(dst, urlStr string) (*Response, error) {
-	req, err := NewRequest(dst, urlStr)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, err := NewRequest(ctx, dst, urlStr)
 	if err != nil {
 		return nil, err
 	}
-
-	resp := DefaultClient.Do(req)
+	resp := DefaultClient.Do(ctx, cancel, req)
 	return resp, resp.Err()
 }
 
@@ -81,7 +84,15 @@ func WithWriteHook(hook func(n int64)) DownloadOptionFunc {
 //
 // For control over HTTP client headers, redirect policy, and other settings,
 // create a Client instead.
-func GetBatch(reqParams []BatchReq, opts ...DownloadOptionFunc) (int64, int64, <-chan *Response, error) {
+
+type BatchResponse struct {
+	Current int64
+	Total   int64
+	ResCh   <-chan *Response
+	Cancel  context.CancelFunc
+}
+
+func GetBatch(reqParams []BatchReq, opts ...DownloadOptionFunc) (*BatchResponse, error) {
 	opt := &DownloadOptions{
 		workers:    10,
 		retryTimes: 3,
@@ -93,19 +104,27 @@ func GetBatch(reqParams []BatchReq, opts ...DownloadOptionFunc) (int64, int64, <
 
 	current, total, err := DefaultClient.GetProgress(reqParams)
 	if err != nil {
-		return 0, 0, nil, err
+		return nil, err
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	resp := &BatchResponse{
+		Current: current,
+		Total:   total,
+		Cancel:  cancel,
 	}
 
 	reqs := make([]*Request, len(reqParams))
 	for i := 0; i < len(reqs); i++ {
-		req, err := NewRequest(reqParams[i].Dst, reqParams[i].Url)
+		req, err := NewRequest(ctx, reqParams[i].Dst, reqParams[i].Url)
 		if err != nil {
-			return 0, 0, nil, err
+			return nil, err
 		}
 		req.DownloadOptions = opt
 		reqs[i] = req
 	}
 
-	ch := DefaultClient.DoBatch(opt, reqs...)
-	return current, total, ch, nil
+	ch := DefaultClient.DoBatch(ctx, cancel, opt, reqs...)
+	resp.ResCh = ch
+	return resp, nil
 }

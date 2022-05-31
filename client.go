@@ -79,9 +79,7 @@ var DefaultClient = NewClient()
 // CheckRedirect), or if there was an HTTP protocol or IO error. Response.Err
 // will block the caller until the transfer is completed, successfully or
 // otherwise.
-func (c *Client) Do(req *Request) *Response {
-	// cancel will be called on all code-paths via closeResponse
-	ctx, cancel := context.WithCancel(req.Context())
+func (c *Client) Do(ctx context.Context, cancel context.CancelFunc, req *Request) *Response {
 	req = req.WithContext(ctx)
 	resp := &Response{
 		Request:         req,
@@ -123,10 +121,10 @@ func (c *Client) Do(req *Request) *Response {
 //
 // If an error occurs during any of the file transfers it will be accessible via
 // the associated Response.Err function.
-func (c *Client) DoChannel(reqch <-chan *Request, respch chan<- *Response) {
+func (c *Client) DoChannel(ctx context.Context, cancel context.CancelFunc, reqch <-chan *Request, respch chan<- *Response) {
 	// TODO: enable cancelling of batch jobs
 	for req := range reqch {
-		resp := c.Do(req)
+		resp := c.Do(ctx, cancel, req)
 		respch <- resp
 		<-resp.Done
 	}
@@ -144,7 +142,7 @@ func (c *Client) DoChannel(reqch <-chan *Request, respch chan<- *Response) {
 //
 // The returned Response channel is closed only after all of the given Requests
 // have completed, successfully or otherwise.
-func (c *Client) DoBatch(opt *DownloadOptions, requests ...*Request) <-chan *Response {
+func (c *Client) DoBatch(ctx context.Context, cancel context.CancelFunc, opt *DownloadOptions, requests ...*Request) <-chan *Response {
 	if opt.workers < 1 {
 		opt.workers = len(requests)
 	}
@@ -157,15 +155,22 @@ func (c *Client) DoBatch(opt *DownloadOptions, requests ...*Request) <-chan *Res
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			c.DoChannel(reqch, respch)
+			c.DoChannel(ctx, cancel, reqch, respch)
 		}()
 	}
 
 	// queue requests
 	go func() {
 		for _, req := range requests {
-			reqch <- req
+			select {
+			case <-ctx.Done():
+				goto END
+			default:
+				reqch <- req
+			}
 		}
+
+	END:
 		close(reqch)
 		wg.Wait()
 		close(respch)
@@ -189,7 +194,7 @@ func (c *Client) GetProgress(reqParams []BatchReq) (int64, int64, error) {
 			}()
 
 			if resp.StatusCode != http.StatusOK {
-				if resp.StatusCode != http.StatusForbidden {
+				if resp.StatusCode == http.StatusForbidden {
 					return ErrForbidden
 				}
 				return errors.New(resp.Status)

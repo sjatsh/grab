@@ -1,6 +1,7 @@
 package grab
 
 import (
+	"context"
 	"golang.org/x/sync/errgroup"
 	"os"
 	"sync"
@@ -17,7 +18,7 @@ type Downloader struct {
 	sync.RWMutex
 	path              string
 	files             []DownloadFile
-	resp              []*Response
+	resps             []*Response
 	perSecondHookOnce sync.Once
 	opts              []DownloadOptionFunc
 	lastBps           float64
@@ -25,6 +26,8 @@ type Downloader struct {
 	total             int64
 	errOnce           sync.Once
 	err               chan error
+	done              int32
+	cancel            context.CancelFunc
 }
 
 func NewDownloader(path string, files []DownloadFile, opts ...DownloadOptionFunc) *Downloader {
@@ -32,7 +35,6 @@ func NewDownloader(path string, files []DownloadFile, opts ...DownloadOptionFunc
 		opts:  opts,
 		path:  path,
 		files: files,
-		resp:  []*Response{},
 	}
 }
 
@@ -92,58 +94,34 @@ func (d *Downloader) StartDownload() error {
 	d.opts = append(d.opts, WithWriteHook(func(n int64) {
 		atomic.AddInt64(&d.current, n)
 	}))
-	current, total, resp, err := GetBatch(batchReq, d.opts...)
+	resp, err := GetBatch(batchReq, d.opts...)
 	if err != nil {
 		return err
 	}
-	atomic.StoreInt64(&d.current, current)
-	atomic.StoreInt64(&d.total, total)
+	d.cancel = resp.Cancel
+	atomic.StoreInt64(&d.current, resp.Current)
+	atomic.StoreInt64(&d.total, resp.Total)
 
 	go func() {
-		for v := range resp {
+		for v := range resp.ResCh {
 			d.Lock()
-			d.resp = append(d.resp, v)
+			d.resps = append(d.resps, v)
 			d.Unlock()
 		}
+		atomic.StoreInt32(&d.done, 1)
 	}()
 	return nil
 }
 
 func (d *Downloader) PauseDownload() error {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		if len(d.resp) != len(d.files) {
-			continue
-		}
-		break
-	}
-
-	errWg := errgroup.Group{}
-	d.RLock()
-	for _, v := range d.resp {
-		resp := v
-		errWg.Go(func() error {
-			return resp.Cancel()
-		})
-	}
-	d.RUnlock()
-	return errWg.Wait()
+	d.cancel()
+	return <-d.Err()
 }
 
 func (d *Downloader) Wait() {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		if len(d.resp) != len(d.files) {
-			continue
-		}
-		break
-	}
-
 	wg := &sync.WaitGroup{}
-	wg.Add(len(d.resp))
-	for _, v := range d.resp {
+	wg.Add(len(d.resps))
+	for _, v := range d.resps {
 		resp := v
 		go func() {
 			defer wg.Done()
@@ -151,27 +129,19 @@ func (d *Downloader) Wait() {
 		}()
 	}
 	wg.Wait()
-	time.Sleep(time.Second)
 }
 
 func (d *Downloader) Err() <-chan error {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		if len(d.resp) != len(d.files) {
-			continue
-		}
-		break
-	}
-
 	d.errOnce.Do(func() {
-		errWg := errgroup.Group{}
-		for _, v := range d.resp {
+		errWg := &errgroup.Group{}
+		d.RLock()
+		for _, v := range d.resps {
 			resp := v
 			errWg.Go(func() error {
 				return resp.Err()
 			})
 		}
+		d.RUnlock()
 		go func() {
 			d.err <- errWg.Wait()
 		}()
@@ -180,19 +150,9 @@ func (d *Downloader) Err() <-chan error {
 }
 
 func (d *Downloader) BytesPerSecond() float64 {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-	for range ticker.C {
-		if len(d.resp) != len(d.files) {
-			continue
-		}
-		break
-	}
-
 	var bps float64
-
 	d.RLock()
-	for _, v := range d.resp {
+	for _, v := range d.resps {
 		bps += v.BytesPerSecond()
 	}
 	d.RUnlock()
