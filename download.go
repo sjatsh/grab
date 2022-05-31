@@ -23,6 +23,8 @@ type Downloader struct {
 	lastBps           float64
 	current           int64
 	total             int64
+	errOnce           sync.Once
+	err               chan error
 }
 
 func NewDownloader(path string, files []DownloadFile, opts ...DownloadOptionFunc) *Downloader {
@@ -162,19 +164,19 @@ func (d *Downloader) Err() <-chan error {
 		break
 	}
 
-	errWg := errgroup.Group{}
-	for _, v := range d.resp {
-		resp := v
-		errWg.Go(func() error {
-			return resp.Err()
-		})
-	}
-
-	errCh := make(chan error)
-	go func() {
-		errCh <- errWg.Wait()
-	}()
-	return errCh
+	d.errOnce.Do(func() {
+		errWg := errgroup.Group{}
+		for _, v := range d.resp {
+			resp := v
+			errWg.Go(func() error {
+				return resp.Err()
+			})
+		}
+		go func() {
+			d.err <- errWg.Wait()
+		}()
+	})
+	return d.err
 }
 
 func (d *Downloader) BytesPerSecond() float64 {
