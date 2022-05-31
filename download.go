@@ -11,6 +11,7 @@ import (
 )
 
 const (
+	StatusEmpty int64 = 0
 	StatusStart int64 = 1
 	StatusStop  int64 = 2
 )
@@ -127,7 +128,8 @@ func (d *Downloader) StartDownload() error {
 	d.startLock.Lock()
 	defer d.startLock.Unlock()
 
-	if atomic.LoadInt64(&d.status) == StatusStart {
+	status := atomic.LoadInt64(&d.status)
+	if status == StatusStart {
 		return errors.New("already in progress download")
 	}
 
@@ -138,9 +140,9 @@ func (d *Downloader) StartDownload() error {
 		atomic.StoreInt64(&d.status, StatusStart)
 	}()
 
-  d.clean()
+	d.clean()
 
-  batchReq := make([]BatchReq, 0)
+	batchReq := make([]BatchReq, 0)
 	for _, v := range d.files {
 		batchReq = append(batchReq, BatchReq{
 			Dst: d.path + string(os.PathSeparator) + v.FileName,
@@ -148,9 +150,11 @@ func (d *Downloader) StartDownload() error {
 		})
 	}
 
-	d.opts = append(d.opts, WithWriteHook(func(n int64) {
-		atomic.AddInt64(&d.current, n)
-	}))
+	if status == StatusEmpty {
+		d.opts = append(d.opts, WithWriteHook(func(n int64) {
+			atomic.AddInt64(&d.current, n)
+		}))
+	}
 	resp, err := GetBatch(batchReq, d.opts...)
 	if err != nil {
 		return err
