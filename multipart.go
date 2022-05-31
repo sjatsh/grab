@@ -200,6 +200,9 @@ func download(resp *Response, res *Results, firstTime, lastTime bool, j *Jobs, r
 	httpResp, err = doHttpReq(http.MethodGet, j.Url, map[string][]string{
 		"Range": {j.Range},
 	})
+	if err != nil {
+		return err
+	}
 	if httpResp.StatusCode == http.StatusForbidden {
 		res.err = ErrForbidden
 		if firstTime {
