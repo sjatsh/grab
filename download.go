@@ -26,6 +26,7 @@ type Downloader struct {
 	total             int64
 	errOnce           sync.Once
 	err               error
+	errChClosed       int64
 	hasErr            chan struct{}
 	done              int64
 	cancel            context.CancelFunc
@@ -141,11 +142,16 @@ func (d *Downloader) StartDownload() error {
 				})
 			}
 			d.l.RUnlock()
-			if d.err = errWg.Wait(); d.err != nil {
-				close(d.hasErr)
+			if err := errWg.Wait(); err != nil {
+				if atomic.CompareAndSwapInt64(&d.errChClosed, 0, 1) {
+					d.err = err
+					close(d.hasErr)
+				}
 				d.cancel()
 				return
-			} else if d.Done() {
+			}
+
+			if d.Done() {
 				return
 			}
 		}
@@ -198,8 +204,10 @@ func (d *Downloader) Err() error {
 				})
 			}
 			d.l.RUnlock()
-			d.err = errWg.Wait()
-			close(d.hasErr)
+			if atomic.CompareAndSwapInt64(&d.errChClosed, 0, 1) {
+				d.err = errWg.Wait()
+				close(d.hasErr)
+			}
 		}()
 	})
 	<-d.hasErr
