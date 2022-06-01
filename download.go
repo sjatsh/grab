@@ -89,7 +89,7 @@ func (d *Downloader) StartDownload() error {
 		})
 	}
 
-	opts := append(d.opts, WithWriteHook(func(n int64) {
+	d.opts = append(d.opts, WithWriteHook(func(n int64) {
 		status := atomic.LoadInt64(&d.status)
 		if status == StatusStopped || status == StatusStopping {
 			return
@@ -97,14 +97,14 @@ func (d *Downloader) StartDownload() error {
 		atomic.AddInt64(&d.current, n)
 	}))
 
-	current, total, err := DefaultClient.WithDownloadOptions(opts...).GetProgress(batchReq)
+	current, total, err := DefaultClient.WithDownloadOptions(d.opts...).GetProgress(batchReq)
 	if err != nil {
 		return err
 	}
 	atomic.StoreInt64(&d.current, current)
 	atomic.StoreInt64(&d.total, total)
 
-	resp, err := GetBatch(batchReq, opts...)
+	resp, err := GetBatch(batchReq, d.opts...)
 	if err != nil {
 		return err
 	}
@@ -211,6 +211,21 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 
 			select {
 			case <-d.hasErr:
+				if d.err == nil {
+					batchReq := make([]BatchReq, 0)
+					for _, v := range d.files {
+						filePath := d.path + string(os.PathSeparator) + v.FileName
+						batchReq = append(batchReq, BatchReq{
+							Dst: filePath,
+							Url: v.Url,
+						})
+					}
+					var err error
+					current, _, err = DefaultClient.WithDownloadOptions(d.opts...).GetProgress(batchReq)
+					if err == nil {
+						atomic.StoreInt64(&d.current, current)
+					}
+				}
 				d.progressHook(current, total, d.err)
 				return
 			default:
@@ -324,6 +339,7 @@ func (d *Downloader) clean() {
 	atomic.StoreInt64(&d.total, 0)
 	atomic.StoreInt64(&d.errChClosed, 0)
 	atomic.StoreInt64(&d.done, 0)
+	d.opts = make([]DownloadOptionFunc, 0)
 	d.l = sync.RWMutex{}
 	d.lastBps = 0
 	d.cancel = nil
