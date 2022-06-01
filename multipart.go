@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -120,12 +122,20 @@ func SplitSizeIntoChunks(totalBytes int64, partSizes ...int64) ([]*Chunk, int, e
 
 // checkDownloadedParts 对已下载分片检查
 func checkDownloadedParts(opt *MultiCPInfo, cfFile string, chunks []*Chunk) (bool, error) {
-	fd, err := os.Open(cfFile)
+	fd, err := os.OpenFile(cfFile, os.O_RDONLY, 0660)
 	// checkpoint 文件不存在
 	if err != nil && os.IsNotExist(err) {
-		// 创建 checkpoint 文件
-		err := CreateHideFile(cfFile)
-		return false, err
+		dir := filepath.Dir(cfFile)
+		fileName := filepath.Base(cfFile)
+		fileName = strings.TrimPrefix(fileName, ".")
+		f, err := os.OpenFile(fmt.Sprintf("%s%s.%s", dir, string(os.PathSeparator), fileName), os.O_RDONLY|os.O_CREATE|os.O_TRUNC, 0660)
+		if err != nil {
+			return false, err
+		}
+		if err := f.Close(); err != nil {
+			return false, err
+		}
+		return false, nil
 	}
 	if err != nil {
 		return false, err
