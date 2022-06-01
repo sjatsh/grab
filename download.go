@@ -72,7 +72,7 @@ func (d *Downloader) StartDownload() error {
 	}
 
 	defer func() {
-		if d.progressHook != nil {
+		if d.progressHook != nil && status != StatusEmpty {
 			d.WithProgressHook(nil)
 		}
 		atomic.StoreInt64(&d.status, StatusStart)
