@@ -192,7 +192,7 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 		defer ticker.Stop()
 		for range ticker.C {
 			status := atomic.LoadInt64(&d.status)
-			if status == StatusStopped || status == StatusStopping {
+			if status != StatusStart && status != StatusEmpty {
 				return
 			}
 

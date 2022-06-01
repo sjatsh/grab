@@ -30,22 +30,16 @@ func main() {
 		panic(err)
 	}
 
+	go func() {
+		_ = http.ListenAndServe(":6060", nil)
+	}()
+
 	downloader := grab.NewDownloader(
 		config.Path,
 		config.Files,
 		grab.WithPartSize(32*1024*1024),
 		grab.WithDownloadWorkers(10),
 	)
-
-	start := time.Now()
-	if err := downloader.StartDownload(); err != nil {
-		panic(err)
-	}
-
-	go func() {
-		_ = http.ListenAndServe(":6060", nil)
-	}()
-
 	downloader.WithProgressHook(func(current, total int64, err error) {
 		if err != nil {
 			panic(err)
@@ -53,6 +47,10 @@ func main() {
 		fmt.Printf("%.2f%%\n", float64(current)/float64(total)*100)
 	})
 
+	start := time.Now()
+	if err := downloader.StartDownload(); err != nil {
+		panic(err)
+	}
 	if err := downloader.Err(); err != nil {
 		panic(err)
 	}
