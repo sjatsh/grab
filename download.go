@@ -186,6 +186,8 @@ func (d *Downloader) PauseDownload() error {
 
 func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)) {
 	progressFunc := func() {
+		defer close(d.progressDone)
+
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
@@ -208,12 +210,10 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 			select {
 			case <-d.hasErr:
 				d.progressHook(current, total, d.err)
-				close(d.progressDone)
 				return
 			default:
 				d.progressHook(current, total, nil)
 				if current == total {
-					close(d.progressDone)
 					return
 				}
 			}
