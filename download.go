@@ -139,7 +139,9 @@ func (d *Downloader) StartDownload() error {
 			if err := errWg.Wait(); err != nil {
 				if atomic.CompareAndSwapInt64(&d.errChClosed, 0, 1) {
 					d.err = err
-					close(d.hasErr)
+					if atomic.LoadInt64(&d.status) == StatusStart {
+						close(d.hasErr)
+					}
 				}
 				d.cancel()
 				return
@@ -180,7 +182,7 @@ func (d *Downloader) PauseDownload() error {
 		err = v.Cancel()
 		err = v.Err()
 	}
-	time.Sleep(time.Second)
+	<-d.progressDone
 	return err
 }
 
@@ -287,7 +289,9 @@ func (d *Downloader) Err() error {
 			d.l.RUnlock()
 			if atomic.CompareAndSwapInt64(&d.errChClosed, 0, 1) {
 				d.err = errWg.Wait()
-				close(d.hasErr)
+				if atomic.LoadInt64(&d.status) == StatusStart {
+					close(d.hasErr)
+				}
 			}
 		}()
 	})
