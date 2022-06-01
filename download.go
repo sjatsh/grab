@@ -288,6 +288,7 @@ func (d *Downloader) Err() error {
 		}()
 	})
 	<-d.hasErr
+	time.Sleep(time.Second)
 	return d.err
 }
 
