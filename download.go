@@ -143,7 +143,9 @@ func (d *Downloader) StartDownload() error {
 						close(d.hasErr)
 					}
 				}
-				d.cancel()
+				if d.cancel != nil {
+					d.cancel()
+				}
 				return
 			}
 
