@@ -43,14 +43,16 @@ type Downloader struct {
 	err               error
 	hasErr            chan struct{}
 	resps             []*Response
+	progressDone      chan struct{}
 }
 
 func NewDownloader(path string, files []DownloadFile, opts ...DownloadOptionFunc) *Downloader {
 	return &Downloader{
-		opts:   opts,
-		path:   path,
-		files:  files,
-		hasErr: make(chan struct{}),
+		opts:         opts,
+		path:         path,
+		files:        files,
+		hasErr:       make(chan struct{}),
+		progressDone: make(chan struct{}),
 	}
 }
 
@@ -206,10 +208,12 @@ func (d *Downloader) WithProgressHook(hook func(current, total int64, err error)
 			select {
 			case <-d.hasErr:
 				d.progressHook(current, total, d.err)
+				close(d.progressDone)
 				return
 			default:
 				d.progressHook(current, total, nil)
 				if current == total {
+					close(d.progressDone)
 					return
 				}
 			}
@@ -262,7 +266,7 @@ func (d *Downloader) Wait() {
 	for _, v := range d.resps {
 		v.Wait()
 	}
-	time.Sleep(time.Second)
+	<-d.progressDone
 }
 
 func (d *Downloader) Err() error {
@@ -288,7 +292,7 @@ func (d *Downloader) Err() error {
 		}()
 	})
 	<-d.hasErr
-	time.Sleep(time.Second)
+	<-d.progressDone
 	return d.err
 }
 
@@ -324,4 +328,5 @@ func (d *Downloader) clean() {
 	d.err = nil
 	d.hasErr = make(chan struct{})
 	d.resps = make([]*Response, 0)
+	d.progressDone = make(chan struct{})
 }
